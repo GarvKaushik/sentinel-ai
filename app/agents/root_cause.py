@@ -29,7 +29,7 @@ from app.schemas.evidence import EvidenceLedger, Hypothesis
 from app.schemas.scenario import IncidentScenario
 from app.llm.client import chat
 from app.agents.correlator import run_correlator
-from app.retrieval.ingest import get_qdrant_client, EMBEDDING_MODEL, ingest_runbooks
+from app.retrieval.ingest import get_qdrant_client, EMBEDDING_MODEL
 from app.retrieval.search import search_runbooks
 
 ROOT_CAUSE_MODEL = "openai/gpt-oss-120b"
@@ -134,13 +134,6 @@ def run_root_cause_investigation(scenario: IncidentScenario, use_in_memory_qdran
     from sentence_transformers import SentenceTransformer
     client = get_qdrant_client(in_memory=use_in_memory_qdrant)
     model = SentenceTransformer(EMBEDDING_MODEL)
-
-    # A temporary Qdrant instance starts empty. Populate it here so the
-    # end-to-end evaluator can run locally without a Docker service.
-    if use_in_memory_qdrant:
-        from pathlib import Path
-        runbooks_dir = Path(__file__).resolve().parents[2] / "data" / "runbooks"
-        ingest_runbooks(runbooks_dir, client, model)
 
     query = build_runbook_query(ledger)
     print(f"Runbook query (built from Correlator evidence): {query!r}\n")

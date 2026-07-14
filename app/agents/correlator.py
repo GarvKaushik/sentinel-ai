@@ -19,6 +19,7 @@ from datetime import datetime
 
 from app.schemas.evidence import EvidenceObject, SourceType, EvidenceLedger
 from app.schemas.scenario import IncidentScenario, MetricPoint, CommitInfo
+from app.llm.client import chat
 
 # How many multiples of baseline a metric must exceed to count as an anomaly.
 ANOMALY_THRESHOLD_MULTIPLIER = 3.0
@@ -146,10 +147,7 @@ def correlate_deploys(
     return evidence
 
 
-def run_correlator(
-    scenario: IncidentScenario,
-    include_summary: bool = True,
-) -> tuple[EvidenceLedger, str]:
+def run_correlator(scenario: IncidentScenario) -> tuple[EvidenceLedger, str]:
     """Full Correlator pass over one incident scenario. Returns the
     populated EvidenceLedger plus a plain-English LLM summary (narration
     only, not itself citable evidence)."""
@@ -196,13 +194,7 @@ def run_correlator(
         ledger.add_evidence(ev)
 
     # 4. LLM summary — narration only, built from already-established
-    # evidence, not a source of new claims. Keeping it optional lets the
-    # evaluator exercise the deterministic evidence stage without an API key.
-    if not include_summary:
-        return ledger, "LLM summary disabled."
-
-    from app.llm.client import chat
-
+    # evidence, not a source of new claims.
     evidence_lines = "\n".join(f"- {e.claim}" for e in ledger.evidence)
     summary = chat(
         prompt=(

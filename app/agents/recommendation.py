@@ -20,7 +20,7 @@ import json
 
 from app.schemas.evidence import EvidenceLedger, Recommendation, Hypothesis
 from app.llm.client import chat
-from app.retrieval.ingest import get_qdrant_client, EMBEDDING_MODEL, ingest_runbooks
+from app.retrieval.ingest import get_qdrant_client, EMBEDDING_MODEL
 from app.retrieval.search import search_runbooks
 
 RECOMMENDATION_MODEL = "openai/gpt-oss-120b"
@@ -97,11 +97,6 @@ def run_recommendation(ledger: EvidenceLedger, use_in_memory_qdrant: bool = Fals
     client = get_qdrant_client(in_memory=use_in_memory_qdrant)
     model = SentenceTransformer(EMBEDDING_MODEL)
 
-    if use_in_memory_qdrant:
-        from pathlib import Path
-        runbooks_dir = Path(__file__).resolve().parents[2] / "data" / "runbooks"
-        ingest_runbooks(runbooks_dir, client, model)
-
     query = build_remediation_query(top_hyp)
     remediation_evidence = search_runbooks(query, client, model, top_k=2, produced_by="recommendation_agent")
     for e in remediation_evidence:
@@ -148,7 +143,6 @@ if __name__ == "__main__":
     from pathlib import Path
     import importlib.util
     from app.agents.critic import run_critic
-    from app.agents.postmortem import generate_postmortem, render_markdown
     from app.agents.root_cause import run_root_cause_investigation
 
     spec = importlib.util.spec_from_file_location(
@@ -160,7 +154,6 @@ if __name__ == "__main__":
     ledger = run_root_cause_investigation(mod.scenario_001)
     ledger = run_critic(ledger)
     ledger = run_recommendation(ledger)
-    postmortem = generate_postmortem(ledger, title=mod.scenario_001.title)
 
     print("\nRECOMMENDATION:")
     rec = ledger.recommendation
@@ -172,5 +165,3 @@ if __name__ == "__main__":
     print(f"  Supporting refs: {rec.supporting_evidence_refs}")
     if rec.risk_notes:
         print(f"  Risk notes: {rec.risk_notes}")
-    print("\nPOSTMORTEM:\n")
-    print(render_markdown(postmortem))

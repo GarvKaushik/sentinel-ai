@@ -22,8 +22,6 @@ to evidence already stored in the investigation ledger.
   logs, and correlates deployments to affected services.
 - LLM-backed root-cause, critic, and recommendation agents with defensive
   JSON and citation validation.
-- Deterministic, citation-validated postmortem reports and an evaluation
-  harness for objective provenance and evidence-coverage metrics.
 - One synthetic incident with known ground truth and an intentionally
   misleading unrelated deployment.
 
@@ -194,12 +192,6 @@ python -m app.agents.root_cause
 
 # Full investigation, falsification, and remediation recommendation
 python -m app.agents.recommendation
-
-# Run the deterministic postmortem/evaluation tests (no API key required)
-python -m unittest eval.test_harness eval.test_batch
-
-# Verify all seven scenarios' deterministic evidence collection (no API key)
-python -m eval.batch
 ```
 
 ## Current API
@@ -217,14 +209,12 @@ not an API endpoint or background job.
 ## Important current limitations
 
 - The root-cause and recommendation modules query Qdrant but do not ingest
-  documents automatically when using persistent Qdrant; run ingestion first.
-  In-memory evaluation mode populates its temporary index automatically.
+  documents automatically; run ingestion first for persistent Qdrant.
 - LLM requests have no retry, timeout, tracing, or queue orchestration yet.
 - PostgreSQL and Redis are available in Docker Compose but are not yet used by
   application code.
-- Retrieval is dense-vector only; keyword search and reranking are the next
-  upgrades. The evaluator includes seven scenarios and can run a configured
-  full pipeline through the same batch interface.
+- Retrieval is dense-vector only; keyword search, reranking, and evaluation
+  automation are planned rather than implemented.
 - Ground-truth fields exist for synthetic evaluation. They must not be exposed
   to a real incident investigation pipeline.
 
