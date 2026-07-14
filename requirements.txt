@@ -1,0 +1,16 @@
+# --- Week 1 minimum: schema + FastAPI skeleton only ---
+# Everything else (Qdrant, embeddings, LangGraph, Celery, LLM SDKs, etc.)
+# gets added back in exactly when the step that needs it comes up.
+# See README.md "Next steps" for what unlocks what.
+
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+python-dotenv==1.0.1
+# --- Added for runbooks + Qdrant ingestion step ---
+qdrant-client==1.11.1
+sentence-transformers==3.1.1
+
+
+# --- Added for Correlator agent (Groq LLM calls, OpenAI-compatible) ---
+openai==1.51.0

@@ -1,0 +1,17 @@
+{
+  "scenario_id": "scenario_001_bad_deploy",
+  "title": "Payments API error rate spike after deploy",
+  "services_affected": [
+    "svc-payments"
+  ],
+  "injected_root_cause": "Commit a1b2c3d removed a null-check on `customer.billing_address` in the payments validation path, causing NullPointerException for any request where billing_address is omitted (a valid, common case for digital-goods-only orders).",
+  "root_cause_category": "bad_deploy",
+  "red_herrings": [
+    "commit e4f5g6h deployed only ~2 minutes before the alert, and to the naive eye 'most recent deploy' looks suspicious — but it touches svc-notifications, which shows zero error-rate movement in the metrics. A correct investigation should rule this out on the basis of service-correlation, not just recency."
+  ],
+  "expected_evidence_refs": [
+    "prometheus:error_rate_pct:svc-payments:2026-07-06T14:33:00Z",
+    "log:svc-payments:line:4821",
+    "commit:a1b2c3d"
+  ]
+}

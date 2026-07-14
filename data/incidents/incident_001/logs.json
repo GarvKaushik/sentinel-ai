@@ -1,0 +1,23 @@
+[
+  {
+    "timestamp": "2026-07-06T14:33:04Z",
+    "service": "svc-payments",
+    "level": "ERROR",
+    "message": "NullPointerException at PaymentValidator.validate(PaymentValidator.java:142): Cannot invoke \"BillingAddress.getPostalCode()\" because \"customer.billing_address\" is null",
+    "line_id": "log:svc-payments:line:4821"
+  },
+  {
+    "timestamp": "2026-07-06T14:33:47Z",
+    "service": "svc-payments",
+    "level": "ERROR",
+    "message": "NullPointerException at PaymentValidator.validate(PaymentValidator.java:142): Cannot invoke \"BillingAddress.getPostalCode()\" because \"customer.billing_address\" is null",
+    "line_id": "log:svc-payments:line:4855"
+  },
+  {
+    "timestamp": "2026-07-06T14:30:12Z",
+    "service": "svc-notifications",
+    "level": "INFO",
+    "message": "Scheduled digest job completed successfully, 4213 emails queued",
+    "line_id": "log:svc-notifications:line:991"
+  }
+]

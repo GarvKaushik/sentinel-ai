@@ -1,0 +1,22 @@
+[
+  {
+    "sha": "a1b2c3d",
+    "author": "garv",
+    "timestamp": "2026-07-06T14:32:30Z",
+    "message": "Refactor PaymentValidator: simplify address validation logic",
+    "files_changed": [
+      "src/main/java/payments/PaymentValidator.java"
+    ],
+    "is_guilty_commit": true
+  },
+  {
+    "sha": "e4f5g6h",
+    "author": "teammate",
+    "timestamp": "2026-07-06T14:30:15Z",
+    "message": "Update email digest template copy",
+    "files_changed": [
+      "src/main/java/notifications/DigestTemplate.java"
+    ],
+    "is_guilty_commit": false
+  }
+]
