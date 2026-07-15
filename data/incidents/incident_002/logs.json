@@ -1,0 +1,9 @@
+[
+  {
+    "timestamp": "2026-07-07T14:33:05Z",
+    "service": "svc-orders",
+    "level": "ERROR",
+    "message": "DatabasePoolTimeoutException: timed out waiting for a connection from orders-primary pool",
+    "line_id": "log:svc-orders:line:1201"
+  }
+]

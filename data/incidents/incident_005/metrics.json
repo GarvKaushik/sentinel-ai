@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-07-10T14:30:00Z",
+    "metric_name": "memory_working_set_mb",
+    "value": 420,
+    "service": "svc-images"
+  },
+  {
+    "timestamp": "2026-07-10T14:31:00Z",
+    "metric_name": "memory_working_set_mb",
+    "value": 435,
+    "service": "svc-images"
+  },
+  {
+    "timestamp": "2026-07-10T14:32:00Z",
+    "metric_name": "memory_working_set_mb",
+    "value": 441,
+    "service": "svc-images"
+  },
+  {
+    "timestamp": "2026-07-10T14:33:00Z",
+    "metric_name": "memory_working_set_mb",
+    "value": 1800,
+    "service": "svc-images"
+  },
+  {
+    "timestamp": "2026-07-10T14:34:00Z",
+    "metric_name": "memory_working_set_mb",
+    "value": 1940,
+    "service": "svc-images"
+  },
+  {
+    "timestamp": "2026-07-10T14:35:00Z",
+    "metric_name": "memory_working_set_mb",
+    "value": 2048,
+    "service": "svc-images"
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-07-12T14:30:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 0.2,
+    "service": "svc-inventory"
+  },
+  {
+    "timestamp": "2026-07-12T14:31:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 0.3,
+    "service": "svc-inventory"
+  },
+  {
+    "timestamp": "2026-07-12T14:32:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 0.2,
+    "service": "svc-inventory"
+  },
+  {
+    "timestamp": "2026-07-12T14:33:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 7.9,
+    "service": "svc-inventory"
+  },
+  {
+    "timestamp": "2026-07-12T14:34:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 11.5,
+    "service": "svc-inventory"
+  },
+  {
+    "timestamp": "2026-07-12T14:35:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 13.3,
+    "service": "svc-inventory"
+  }
+]

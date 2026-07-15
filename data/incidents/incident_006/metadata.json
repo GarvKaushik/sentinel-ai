@@ -1,0 +1,14 @@
+{
+  "scenario_id": "scenario_006_traffic_spike",
+  "title": "Search latency rises during legitimate traffic surge",
+  "services_affected": [
+    "svc-search"
+  ],
+  "injected_root_cause": "A legitimate traffic surge exceeded search service capacity; there was no faulty deployment.",
+  "root_cause_category": "traffic_spike_no_bug",
+  "red_herrings": [],
+  "expected_evidence_refs": [
+    "prometheus:requests_per_second:svc-search:2026-07-11T14:33:00Z",
+    "doc:runbook-api-latency-spike#common-root-causes-in-order-of-frequency"
+  ]
+}

@@ -1,235 +1,486 @@
-# Sentinel AI: Project Guide
+# Sentinel AI — Complete Project Context
 
-Sentinel AI is a prototype autonomous incident-investigation system for
-production services. Given an incident's metrics, logs, and deployment
-history, it builds a cited evidence ledger, proposes root-cause hypotheses,
-attempts to falsify them, and drafts a safe remediation recommendation.
+> **Purpose of this file:** This is the self-contained working context for
+> humans and LLM agents editing this repository. Treat the implementation as
+> the source of truth. This guide records what exists today, how to run it,
+> what must not be assumed, and the intended direction.
 
-The central design rule is **evidence before claims**: agents exchange
-structured, resolvable evidence rather than unconstrained text. A hypothesis
-or recommendation is accepted only when its cited `source_ref` values resolve
-to evidence already stored in the investigation ledger.
+## 1. Project purpose and current status
 
-## What is implemented
+Sentinel AI is an early-stage incident-investigation prototype. It accepts a
+synthetic incident containing metrics, logs, and deployment history; gathers
+structured evidence; retrieves relevant runbook guidance; asks LLM agents to
+propose and falsify root-cause hypotheses; and produces a cited remediation
+recommendation.
 
-- A FastAPI service with health and evidence-schema smoke-test endpoints.
-- Pydantic schemas for incidents, evidence, hypotheses, recommendations, and
-  an evidence ledger.
-- JSON ingestion for an incident data directory.
-- Markdown-section chunking, embeddings, and dense-vector runbook retrieval
-  with Qdrant.
-- A deterministic correlator that detects metric anomalies, collects error
-  logs, and correlates deployments to affected services.
-- LLM-backed root-cause, critic, and recommendation agents with defensive
-  JSON and citation validation.
-- One synthetic incident with known ground truth and an intentionally
-  misleading unrelated deployment.
+It is **not production-ready**. It has one synthetic scenario, no evaluation
+harness, no async orchestration, no persistent application storage, no
+authentication, and no endpoint that runs a full investigation. Qdrant,
+PostgreSQL, and Redis are available in Docker Compose, but only Qdrant is
+currently used by application code.
 
-## Architecture and investigation flow
+The key design principle is:
+
+> No agent claim or action is accepted unless its `source_ref` resolves to an
+> `EvidenceObject` already present in the incident ledger.
+
+This provenance rule is more important than adding agents or dashboards. Keep
+it intact in every future change.
+
+## 2. Implemented architecture
 
 ```text
-incident JSON + scenario data
-            |
-            v
-      Correlator (rules)
-      metrics, logs, deploys
-            |
-            v
-      EvidenceLedger <----- Runbook retriever <----- Markdown runbooks
-            |
-            v
-      Root-Cause agent (ranked, cited hypotheses)
-            |
-            v
-      Critic agent (falsify or demote hypotheses)
-            |
-            v
-      Recommendation agent (cited remediation or escalation)
+Synthetic IncidentScenario / JSON incident files
+                 |
+                 v
+       Correlator agent (deterministic detection)
+       metrics + ERROR/FATAL logs + deploy correlation
+                 |
+                 v
+           EvidenceLedger (shared state)
+                 ^
+                 |             Markdown runbooks
+                 |                    |
+                 +--- Retriever <--- chunks + embeddings + Qdrant
+                 |
+                 v
+     Root-Cause agent (LLM; cited ranked hypotheses)
+                 |
+                 v
+          Critic agent (LLM; falsification/demotion)
+                 |
+                 v
+ Recommendation agent (LLM; cited remediation or human escalation)
+                 |
+                 v
+   Postmortem agent (deterministic; cited structured report)
 ```
 
-### 1. Evidence ledger
+The FastAPI service currently exposes only health and schema smoke-test
+endpoints. It does not invoke the workflow above.
 
-`app/schemas/evidence.py` defines the core contract.
+## 3. Repository map
 
-- `EvidenceObject` is one atomic claim, with a source type, confidence,
-  producer, and a resolvable `source_ref` such as a Prometheus sample, log
-  line, commit SHA, or runbook section.
-- `Hypothesis` cites supporting evidence and can later contain contradicting
-  evidence gathered by the critic.
-- `Recommendation` cites the evidence that makes its action safe to propose.
-- `EvidenceLedger` is the incident's shared state. Its `unresolved_refs()`
-  function is the provenance gate used by downstream agents.
+| Path | What it contains | Current role |
+| --- | --- | --- |
+| `app/main.py` | FastAPI application | `GET /health` and `GET /smoke-test/evidence-ledger` only. |
+| `app/schemas/evidence.py` | Evidence, hypothesis, recommendation, ledger models | Core provenance contract. |
+| `app/schemas/scenario.py` | Synthetic incident input models | Scenario ground truth and source-data shapes. |
+| `app/ingestion/loader.py` | JSON incident directory loader | Converts a `data/incidents/<id>/` folder to `IncidentScenario`. Backs the scenario catalogue. |
+| `app/retrieval/chunking.py` | Markdown section chunker | Makes one citation-addressable chunk per `##` heading. |
+| `app/retrieval/ingest.py` | Qdrant ingestion | Embeds runbook chunks and upserts them. |
+| `app/retrieval/search.py` | Dense retrieval | Returns runbook hits as `EvidenceObject` values. |
+| `app/agents/correlator.py` | Rule-based evidence gathering + LLM summary | First investigation stage. |
+| `app/agents/root_cause.py` | LLM hypothesis generation | Correlator → retrieval → cited hypotheses. |
+| `app/agents/critic.py` | LLM falsification pass | Demotes or validates hypotheses. |
+| `app/agents/recommendation.py` | LLM remediation generation | Uses only surviving hypotheses. |
+| `app/agents/postmortem.py` | Deterministic report assembly | Builds a cited `PostmortemReport` from the completed ledger; no new LLM claims. |
+| `eval/harness.py` | Single-investigation scoring | Non-LLM metrics for one finished investigation; returns `None` where a metric can't be honestly scored. |
+| `eval/batch.py` | Catalogue-wide evaluation | Auto-discovers `data/incidents/*/`; offline correlator-coverage by default, optional full LLM batch. |
+| `eval/test_harness.py`, `eval/test_batch.py` | Unit tests | Cover postmortem citation validity, harness scoring, catalogue breadth, and correlator coverage. |
+| `app/llm/client.py` | Groq/OpenAI-compatible client wrapper | Reads `GROQ_API_KEY`; controls model requests. |
+| `data/runbooks/` | Three Markdown runbooks | Initial RAG corpus. |
+| `data/incidents/incident_001..007/` | JSON incident catalogue | 7 scenarios (one per failure category); the scenario library, loaded by `eval/batch.py`. |
+| `data/scenarios/scenario_001_bad_deploy.py` | Python scenario fixture | Same incident as `incident_001`; imported by agent `__main__` smoke tests and `eval/test_harness.py`. |
+| `docker-compose.yml` | Qdrant, PostgreSQL, Redis | Local infrastructure; Postgres/Redis unused. |
+| `requirements.txt` | Current Python packages | Runtime dependencies. |
+| `FUTURE_DEPENDENCIES.md` | Deferred packages and rationale | Roadmap, not installed functionality. |
+| `README.md` | Original early project overview | Partly stale; use this guide for current context. |
 
-### 2. Correlator
+`eval/` scores single investigations (`eval/harness.py`) and the whole
+catalogue (`eval/batch.py`), over a 7-scenario JSON incident library. There is
+no dashboard, database model, queue worker, or real external data integration
+in the current tree.
 
-`app/agents/correlator.py` intentionally uses rules for detection instead of
-asking a model to interpret raw time series:
+## 4. Core data contracts
 
-1. It calculates each service's baseline from the first half of its metric
-   samples.
-2. It marks the first later sample at least 3x that baseline as the anomaly
-   onset.
-3. It records all `ERROR` and `FATAL` logs as evidence.
-4. It associates a commit with a service from its changed paths and treats it
-   as plausible only when that service is anomalous and the commit preceded
-   onset by no more than five minutes.
-5. Commits that do not correlate are preserved as low-confidence, explicitly
-   ruled-out evidence. This lets the critic reject tempting but irrelevant
-   explanations.
+### Evidence object
 
-The correlator may use the LLM only for a short dashboard summary. That
-summary is narration, not evidence, and cannot be cited.
+`EvidenceObject` is the atomic unit exchanged between the correlator,
+retriever, and reasoning agents.
 
-### 3. Runbook retrieval
-
-Runbooks in `data/runbooks/` are split by `##` heading by
-`app/retrieval/chunking.py`. Each section receives a human-readable reference
-such as `doc:runbook-deploy-error-spike#diagnostic-steps`.
-
-`app/retrieval/ingest.py` embeds those sections with
-`all-MiniLM-L6-v2` (384 dimensions) and upserts them to the `runbooks` Qdrant
-collection. `app/retrieval/search.py` performs dense cosine-similarity search
-and returns the hits as `EvidenceObject` instances, so retrieval results enter
-the ledger with provenance intact.
-
-### 4. Root-cause, critic, and recommendation agents
-
-- The Root-Cause agent turns high-confidence correlator findings into a
-  runbook query, retrieves relevant guidance, asks an LLM for 2–4 ranked
-  hypotheses, then strips unresolvable citations and drops hypotheses with no
-  valid support.
-- The Critic agent reviews every hypothesis adversarially. It can mark a
-  hypothesis as `survived_critique` or `demoted`, cites contradictions, and
-  enforces in code that a demoted hypothesis actually loses confidence.
-- The Recommendation agent considers only the highest-confidence hypothesis
-  that survived critique. It retrieves remediation guidance, validates the
-  cited action, and otherwise returns an explicit human-escalation fallback
-  instead of an ungrounded production change.
-
-## Repository map
-
-| Path | Purpose |
+| Field | Meaning |
 | --- | --- |
-| `app/main.py` | FastAPI app and smoke-test endpoints. |
-| `app/schemas/` | Pydantic contracts shared across the pipeline. |
-| `app/ingestion/loader.py` | Loads an incident JSON directory into an `IncidentScenario`. |
-| `app/retrieval/` | Runbook chunking, Qdrant ingestion, and semantic retrieval. |
-| `app/agents/` | Correlator, root-cause, critic, and recommendation stages. |
-| `app/llm/client.py` | OpenAI-compatible client configured for Groq. |
-| `data/runbooks/` | RAG source documents for diagnostics and remediation. |
-| `data/incidents/incident_001/` | JSON representation of the sample incident. |
-| `data/scenarios/` | Python scenario fixture containing synthetic ground truth. |
-| `docker-compose.yml` | Local Qdrant, PostgreSQL, and Redis services. |
-| `FUTURE_DEPENDENCIES.md` | Deferred dependencies and planned capabilities. |
+| `claim` | A short factual statement. It must not be blank. |
+| `source_type` | One of `metric`, `log`, `commit`, `doc`, or `incident`. |
+| `source_ref` | A stable, resolvable citation key. |
+| `confidence` | Number from 0.0 through 1.0. |
+| `timestamp` | Optional event time. |
+| `produced_by` | Agent/stage that created the object. |
 
-## Sample incident
+Existing reference conventions:
 
-`scenario_001_bad_deploy` models a payments error-rate spike. The useful
-signals are a jump in `svc-payments` error rate, `PaymentValidator` null
-reference errors, and a payments commit just before onset. A notifications
-commit is deliberately close in time but belongs to a service whose metrics
-stay flat. The expected conclusion is therefore a bad payments deployment,
-not simply the most recent deployment.
+```text
+prometheus:<metric_name>:<service>:<ISO-8601 timestamp>
+log:<service>:line:<line-number>
+commit:<sha>
+doc:<runbook-file-stem>#<section-slug>
+```
 
-The JSON fixture in `data/incidents/incident_001/` uses the same incident
-shape and can be loaded with `load_incident()`.
+`EvidenceLedger.resolve_ref()` returns a matching evidence object; 
+`EvidenceLedger.unresolved_refs()` returns bad references. Do not replace these
+checks with prompt-only instructions.
 
-## Prerequisites
+### Hypothesis
 
-- Python 3.12 is recommended for broad package-wheel compatibility.
-- Docker Desktop, if using the persistent Qdrant service.
-- A Groq API key for LLM-backed stages. Set `GROQ_API_KEY` in a local `.env`
-  file or in the environment. Never commit that key.
+`Hypothesis` represents a possible root cause.
 
-## Setup and run
+- `supporting_evidence_refs` must contain one or more resolvable references.
+- `contradicting_evidence_refs` is populated by the critic.
+- Valid status values in practice are `proposed`, `survived_critique`, and
+  `demoted`; the schema also permits `confirmed` for a later human-approved
+  workflow.
+- Confidence represents evidence support, not incident severity.
 
-Create and activate a virtual environment, then install dependencies.
+### Recommendation
+
+`Recommendation` has a summary, ordered detailed steps, supporting evidence,
+optional risk notes, and `is_fallback_escalation`.
+
+If a proposed action has no valid evidence references after validation, the
+system assigns the fixed fallback: escalate to a human on-call engineer. Do
+not silently emit an uncited operational action.
+
+### Postmortem report
+
+`PostmortemReport` holds a title, an executive summary, a timeline, an
+optional root cause, and recommended actions — each section is a list of
+`CitedStatement` (`text` + `supporting_evidence_refs`), never a plain string.
+`validate_postmortem()` re-checks every statement's refs against the ledger
+independently of how the report was built, and any failures are recorded in
+`validation_errors` rather than silently dropped.
+
+### Scenario and source-data models
+
+`IncidentScenario` is synthetic-evaluation data. It contains real-looking
+signals plus fields that must remain hidden from the investigation pipeline:
+
+- `injected_root_cause`
+- `root_cause_category`
+- `CommitInfo.is_guilty_commit`
+- `red_herrings`
+- `expected_evidence_refs`
+
+Those fields are valid only for test/evaluation fixtures. A future real
+incident schema must not contain them.
+
+## 5. Agent behavior and invariants
+
+### Correlator — `app/agents/correlator.py`
+
+This stage is mostly deterministic by design.
+
+1. Groups metrics by service.
+2. Uses the mean of the first half of each service's points as its baseline.
+3. Detects the first point in the second half at least **3×** the baseline.
+4. Writes a metric evidence object for that anomaly onset.
+5. Writes evidence for every `ERROR` and `FATAL` log. `INFO` and `WARN` logs
+   are ignored.
+6. Infers a commit's service by looking for the service name (minus `svc-`) in
+   `files_changed`.
+7. Marks a commit as a plausible candidate only when it belongs to an
+   anomalous service and lands from 0 to 300 seconds before anomaly onset.
+8. Records every non-correlating commit as low-confidence (`0.15`) ruled-out
+   evidence instead of dropping it. This negative evidence matters to the
+   critic.
+9. Calls the LLM only to write a 2–3 sentence dashboard summary. This summary
+   is not an `EvidenceObject` and is never a valid citation.
+
+Known constraints: anomaly grouping is by service, not `(service, metric)`;
+commit-to-service inference is path-name matching; and log collection is not
+time-windowed. These are intentionally simple prototype choices.
+
+### Retriever — `app/retrieval/`
+
+- `chunking.py` splits each runbook into chunks on `##` headings. It prepends
+  the document title to each chunk and derives a readable citation slug.
+- `ingest.py` uses `sentence-transformers` model `all-MiniLM-L6-v2`, producing
+  384-dimensional vectors in Qdrant collection `runbooks` with cosine
+  distance.
+- `search.py` embeds a query and performs dense-only top-k search (default
+  `top_k=3`). It converts each hit into `EvidenceObject(source_type="doc")`.
+
+There is no BM25, reciprocal-rank fusion, reranker, architecture-document
+corpus, or past-incident corpus yet.
+
+### Root-Cause agent — `app/agents/root_cause.py`
+
+1. Calls the correlator.
+2. Uses up to four high-confidence ledger claims to form a runbook query.
+3. Creates a Qdrant client and sentence-transformer model.
+4. Retrieves two runbook chunks and appends them to the ledger.
+5. Calls the stronger LLM model to return 2–4 hypotheses as JSON.
+6. Strips unresolved citations; drops any hypothesis left with no valid
+   supporting references; sorts the remainder by confidence.
+
+`use_in_memory_qdrant=True` creates an empty in-memory Qdrant instance but
+does **not** ingest runbooks automatically. It is not a working full-pipeline
+shortcut unless the caller first populates that client. Normal runs require
+the persistent `runbooks` collection to have been ingested.
+
+### Critic agent — `app/agents/critic.py`
+
+The critic receives all evidence and hypotheses, then asks an LLM to search
+for contradictions. It validates every cited contradiction. It also enforces
+the LLM's declared outcome in code:
+
+- A `demoted` hypothesis cannot retain or gain confidence; if it does, code
+  reduces it by 0.2 (minimum 0.0).
+- A `survived` hypothesis with no valid contradiction cannot lose confidence
+  merely because the LLM returned a lower number.
+- Hypotheses are re-sorted by updated confidence.
+
+This stage is meant to defeat recency bias, especially the unrelated
+notifications commit in scenario 001.
+
+### Recommendation agent — `app/agents/recommendation.py`
+
+1. Selects the highest-confidence `survived_critique` hypothesis only.
+2. Retrieves two remediation-oriented runbook chunks.
+3. Asks the LLM for an action and cited steps.
+4. Removes unresolved citations.
+5. Falls back to human escalation if there is no surviving hypothesis or no
+   valid recommendation citation.
+
+The default `use_in_memory_qdrant=True` has the same empty-index limitation as
+the root-cause agent.
+
+### Postmortem agent — `app/agents/postmortem.py`
+
+Deliberately deterministic: it turns an already-validated ledger into a
+report without asking an LLM for any new factual claim. An LLM-written
+narrative could replace this later only if it still produces `CitedStatement`
+objects that pass `validate_postmortem`.
+
+1. Picks the highest-confidence `survived_critique` hypothesis, if any, via
+   `get_top_surviving_hypothesis`.
+2. Builds the executive summary and root cause from that hypothesis
+   (falling back to the first evidence item if no hypothesis survived).
+3. Builds the timeline from every evidence item that has a `timestamp`,
+   sorted chronologically.
+4. Copies the recommendation's summary and steps into recommended actions
+   only when it is not a fallback escalation.
+5. Runs `validate_postmortem` and stores any unresolved-ref errors on the
+   report instead of failing silently.
+
+`render_markdown()` renders the report for a human, including inline
+citations after each bullet; it prints a fixed fallback line per section
+only when that section is genuinely empty.
+
+## 6. Sample incident and data files
+
+`scenario_001_bad_deploy` is the canonical test fixture:
+
+- Service affected: `svc-payments`.
+- Failure: error rate rises from approximately 0.4% to 12.8% at 14:33 UTC,
+  followed by a `PaymentValidator` null-reference error.
+- Guilty synthetic commit: `a1b2c3d`, a payments validation refactor deployed
+  30 seconds before anomaly onset.
+- Decoy: `e4f5g6h`, a notifications-only email-template commit deployed near
+  the alert. Notifications metrics remain flat, so it should be ruled out.
+
+The JSON version under `data/incidents/incident_001/` requires:
+
+```text
+metadata.json     scenario id, title, affected services, synthetic ground truth
+metrics.json      [{timestamp, metric_name, value, service}, ...]
+logs.json         [{timestamp, service, level, message, line_id}, ...]
+deployments.json  [{sha, author, timestamp, message, files_changed, is_guilty_commit}, ...]
+```
+
+`app.ingestion.loader.load_incident(path)` reads that directory. The loader
+currently expects synthetic ground-truth fields in `metadata.json`; it is not
+a real production incident loader yet.
+
+## 7. Runbooks and retrieval corpus
+
+Current runbooks are:
+
+- `runbook_deploy_error_spike.md`
+- `runbook_api_latency_spike.md`
+- `runbook_db_connection_pool.md`
+
+When adding a runbook, use one `#` title and semantically coherent `##`
+sections. Re-ingest afterward. The heading becomes part of the citation key,
+so avoid changing headings casually after evaluation fixtures reference them.
+
+## 8. Dependencies, infrastructure, and configuration
+
+### Python
+
+Use Python 3.12 where possible. The project currently pins:
+
+- FastAPI and Uvicorn
+- Pydantic v2
+- `python-dotenv`
+- Qdrant client
+- `sentence-transformers`
+- OpenAI Python SDK
+
+See `requirements.txt` for exact versions. `FUTURE_DEPENDENCIES.md` lists
+packages that are deliberately deferred; do not install them merely because
+they appear there.
+
+### Docker services
+
+`docker-compose.yml` starts:
+
+| Service | Port | Used today |
+| --- | --- | --- |
+| Qdrant | 6333 REST, 6334 gRPC | Yes, for persistent runbook retrieval. |
+| PostgreSQL 16 | 5432 | No. Reserved for future incident/report storage. |
+| Redis 7 | 6379 | No. Reserved for future task queue/cache. |
+
+### LLM provider
+
+`app/llm/client.py` uses the OpenAI SDK against Groq's compatible endpoint:
+
+- Base URL: `https://api.groq.com/openai/v1`
+- Default model: `openai/gpt-oss-20b` for correlator summaries
+- Root-cause, critic, recommendation model: `openai/gpt-oss-120b`
+- Required environment variable: `GROQ_API_KEY`
+
+Never put API keys in documentation, prompts, source files, test fixtures, or
+commits. Keep `.env` local and ignored; rotate a key if it has been exposed.
+
+## 9. Setup and exact commands
+
+From the repository root on Windows PowerShell:
 
 ```powershell
 py -3.12 -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
-
-Start local services when using persistent vector storage:
-
-```powershell
 docker compose up -d
-```
-
-Ingest the runbooks before a normal root-cause or recommendation run:
-
-```powershell
 python -m app.retrieval.ingest
 ```
 
-Start the API:
+Create a local `.env` with `GROQ_API_KEY` before LLM-backed commands.
+
+Useful commands:
 
 ```powershell
+# FastAPI only; does not start an investigation workflow
 uvicorn app.main:app --reload
-```
 
-Then open `http://localhost:8000/docs`, or call:
-
-```powershell
+# API smoke checks
 Invoke-RestMethod http://localhost:8000/health
 Invoke-RestMethod http://localhost:8000/smoke-test/evidence-ledger
-```
 
-## Useful local checks
-
-These commands run the individual stages from the repository root.
-
-```powershell
-# Test section chunking, embedding, and search using temporary in-memory Qdrant
+# In-memory retrieval smoke test; downloads/loads the embedding model as needed
 python -m app.retrieval.search
 
-# Run correlation and emit evidence; requires GROQ_API_KEY for its summary
+# Correlator evidence collection plus LLM summary
 python -m app.agents.correlator
 
-# Full investigation; requires GROQ_API_KEY and an ingested Qdrant collection
+# Correlator + retrieval + root-cause hypotheses
 python -m app.agents.root_cause
 
-# Full investigation, falsification, and remediation recommendation
+# Full currently implemented chain: root cause + critic + recommendation
 python -m app.agents.recommendation
+
+# Full chain including the deterministic postmortem report
+python -m app.agents.postmortem
+
+# Offline correlator coverage over the whole 7-scenario catalogue (no Groq/Docker)
+python -m eval.batch
+
+# Unit tests (no Groq key or Docker required)
+python -m unittest eval.test_harness eval.test_batch -v
 ```
 
-## Current API
+The full LLM-backed batch (`eval.batch.evaluate_batch(run_full_pipeline)`) is
+not a default command: it makes paid model calls for every scenario and needs
+Qdrant populated. Call it from a script after setting `GROQ_API_KEY`.
 
-The HTTP API is intentionally minimal at this stage:
+The last four commands need a working Groq key. The root-cause,
+recommendation, and postmortem commands also require that Qdrant has already
+been populated by `python -m app.retrieval.ingest`.
 
-| Route | Result |
+## 10. API surface
+
+| Route | Response |
 | --- | --- |
-| `GET /health` | Returns `{"status": "ok"}`. |
-| `GET /smoke-test/evidence-ledger` | Creates example evidence and demonstrates valid versus invalid citation resolution. |
+| `GET /health` | `{"status": "ok"}` |
+| `GET /smoke-test/evidence-ledger` | Demonstrates valid and invalid citation resolution using hard-coded evidence. |
 
-The full investigation workflow is currently exposed through Python modules,
-not an API endpoint or background job.
+There are no endpoints to submit an incident, poll a job, view a ledger, or
+retrieve a report. `app/api/` is currently empty.
 
-## Important current limitations
+## 11. Reliability and safety rules for future changes
 
-- The root-cause and recommendation modules query Qdrant but do not ingest
-  documents automatically; run ingestion first for persistent Qdrant.
-- LLM requests have no retry, timeout, tracing, or queue orchestration yet.
-- PostgreSQL and Redis are available in Docker Compose but are not yet used by
-  application code.
-- Retrieval is dense-vector only; keyword search, reranking, and evaluation
-  automation are planned rather than implemented.
-- Ground-truth fields exist for synthetic evaluation. They must not be exposed
-  to a real incident investigation pipeline.
+1. Add evidence before reasoning. Every newly asserted fact needs a real
+   `EvidenceObject` and citation.
+2. Keep deterministic detection deterministic. Do not replace metric anomaly
+   logic with an LLM without an evidence-backed and testable reason.
+3. Validate model JSON and citations in code. Prompt wording is not a control.
+4. Preserve negative evidence and critic demotion checks; they are essential
+   to the project's value proposition.
+5. Recommendations must remain human-in-the-loop. Do not add automatic
+   production changes, rollbacks, or external writes without explicit
+   approval, authorization, and auditability.
+6. Never send synthetic ground truth (`injected_root_cause`, guilty flags,
+   expected references) into a production-style investigation prompt.
+7. Treat LLM model names, provider features, and API behavior as configurable
+   external dependencies. Do not assume they remain stable.
 
-## Extending the project
+## 12. Known gaps and prioritized roadmap
 
-1. Add realistic runbooks under `data/runbooks/` with a single `#` title and
-   `##` sections, then re-run ingestion.
-2. Add incident directories with `metrics.json`, `logs.json`,
-   `deployments.json`, and `metadata.json`, following `incident_001`.
-3. Add synthetic scenarios with a known root cause and deliberate decoys for
-   evaluation.
-4. Preserve the ledger contract: add evidence first, then cite only exact
-   `source_ref` values already in that ledger.
-5. Add an orchestration/API layer only after the pipeline is reliable on a
-   broader scenario set.
+### Recently implemented
 
-For the planned next dependencies and sequencing, see
-[`FUTURE_DEPENDENCIES.md`](FUTURE_DEPENDENCIES.md).
+- Postmortem generation (`app/agents/postmortem.py`): deterministic,
+  citation-validated, verified end-to-end against real Groq + Qdrant.
+- Single-investigation evaluation (`eval/harness.py`): root-cause evidence
+  recall, citation precision, retrieval recall, critic effectiveness — returns
+  `None` with a recorded reason for any metric it cannot honestly score.
+- Scenario library + batch runner (`data/incidents/incident_001..007`,
+  `eval/batch.py`): 7 failure categories, discovered from JSON folders via
+  `app.ingestion.loader.load_incident`. Offline correlator coverage is 100%
+  across all 7; a full LLM batch has been run and scored.
+- Retrieval recall is now measured: each scenario's `metadata.json` labels the
+  runbook section a correct investigation should cite (a `doc:` ref in
+  `expected_evidence_refs`), and the harness scores it separately from
+  evidence-citation recall. A full LLM batch measured ~71% mean retrieval
+  recall (dense-only), with two scenarios at 0.00 — real retriever misses that
+  motivate the hybrid-retrieval upgrade below.
+
+Note on ref partitioning: `expected_evidence_refs` now mixes investigative
+refs (metric/log/commit) and `doc:` refs. Correlator coverage and root-cause
+evidence recall deliberately ignore `doc:` refs (the correlator/hypotheses
+don't produce them); retrieval recall scores only the `doc:` refs.
+
+### Remaining before presenting aggregate performance claims
+
+1. **Critic effectiveness** is still unmeasured (`critic_effective` returns
+   `n/a`): the only red-herring scenario (007) has its decoy ruled out upstream
+   (correlator marks it out; root-cause never cites it), so the critic is never
+   challenged. Measuring it needs a scenario where a decoy is genuinely
+   tempting enough that a hypothesis cites it — deferred as a non-trivial,
+   LLM-behavior-dependent design task, not a quick annotation.
+2. A hallucination-rate / latency / cost metric is still not collected.
+
+### Next platform upgrades
+
+2. Hybrid retrieval: BM25 + dense vectors + reciprocal-rank fusion + reranker.
+3. Real incident API and orchestration: incident submission, ledger/report
+   retrieval, retries, timeouts, status tracking, and durable storage.
+4. PostgreSQL models and migrations for investigations and reports; Redis/Celery
+   or equivalent for asynchronous workloads.
+5. Tracing, prompt versioning, cost/latency telemetry, and a small dashboard
+   showing the evidence and critic trace.
+6. Read-only real integration, starting with GitHub commit metadata for a
+   repository the user controls. Keep incident telemetry synthetic until the
+   system is evaluated and access controls exist.
+
+## 13. Guidance for an LLM taking over this repository
+
+- Read this guide, then inspect the exact source files relevant to the task.
+- Do not claim an item is implemented because it is listed in the roadmap or
+  `FUTURE_DEPENDENCIES.md`.
+- Prefer small composable changes that retain the `EvidenceLedger` contract.
+- Add tests with any behavior change; the repository currently has no test
+  suite, so introducing one is high value.
+- Keep the README concise and update this file whenever architecture, data
+  contracts, commands, dependencies, or operational status change.
+- Before a full investigation run, make sure Qdrant is running and the
+  `runbooks` collection is ingested.

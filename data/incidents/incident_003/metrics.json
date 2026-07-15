@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-07-08T14:30:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 0.2,
+    "service": "svc-checkout"
+  },
+  {
+    "timestamp": "2026-07-08T14:31:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 0.3,
+    "service": "svc-checkout"
+  },
+  {
+    "timestamp": "2026-07-08T14:32:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 0.2,
+    "service": "svc-checkout"
+  },
+  {
+    "timestamp": "2026-07-08T14:33:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 8.4,
+    "service": "svc-checkout"
+  },
+  {
+    "timestamp": "2026-07-08T14:34:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 16.7,
+    "service": "svc-checkout"
+  },
+  {
+    "timestamp": "2026-07-08T14:35:00Z",
+    "metric_name": "error_rate_pct",
+    "value": 18.1,
+    "service": "svc-checkout"
+  }
+]
