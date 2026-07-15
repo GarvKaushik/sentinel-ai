@@ -14,3 +14,6 @@ sentence-transformers==3.1.1
 
 # --- Added for Correlator agent (Groq LLM calls, OpenAI-compatible) ---
 openai==1.51.0
+
+# --- Added for hybrid retrieval (BM25 keyword search fused with dense vectors) ---
+rank-bm25==0.2.2
