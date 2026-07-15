@@ -1,0 +1,15 @@
+{
+  "scenario_id": "scenario_004_config_drift",
+  "title": "Catalog requests fail after configuration drift",
+  "services_affected": [
+    "svc-catalog"
+  ],
+  "injected_root_cause": "The catalog production feature-flag configuration drifted and disabled a required pricing provider setting outside the deploy workflow.",
+  "root_cause_category": "config_drift",
+  "red_herrings": [],
+  "expected_evidence_refs": [
+    "prometheus:error_rate_pct:svc-catalog:2026-07-09T14:33:00Z",
+    "log:svc-catalog:line:117",
+    "doc:runbook-deploy-error-spike#common-root-causes"
+  ]
+}

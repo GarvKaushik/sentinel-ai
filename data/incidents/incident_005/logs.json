@@ -1,0 +1,9 @@
+[
+  {
+    "timestamp": "2026-07-10T14:33:05Z",
+    "service": "svc-images",
+    "level": "ERROR",
+    "message": "OOMKilled: container image-resizer exceeded its 2048Mi memory limit",
+    "line_id": "log:svc-images:line:501"
+  }
+]

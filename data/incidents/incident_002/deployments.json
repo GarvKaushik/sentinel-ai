@@ -1,0 +1,12 @@
+[
+  {
+    "sha": "b2c3d4e",
+    "author": "alex",
+    "timestamp": "2026-07-07T14:31:30Z",
+    "message": "Add order history filter query",
+    "files_changed": [
+      "services/orders/repository/OrderHistoryRepository.java"
+    ],
+    "is_guilty_commit": true
+  }
+]

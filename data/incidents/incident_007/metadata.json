@@ -1,0 +1,18 @@
+{
+  "scenario_id": "scenario_007_partial_rollback",
+  "title": "Inventory errors continue after partial rollback",
+  "services_affected": [
+    "svc-inventory"
+  ],
+  "injected_root_cause": "A rollback left a mixed inventory deployment, producing an API contract mismatch between old and new pods.",
+  "root_cause_category": "partial_rollback",
+  "red_herrings": [
+    "Commit d4e5f6a is nearby in time but belongs to svc-notifications, not the failing inventory service."
+  ],
+  "expected_evidence_refs": [
+    "prometheus:error_rate_pct:svc-inventory:2026-07-12T14:33:00Z",
+    "log:svc-inventory:line:991",
+    "commit:c3d4e5f",
+    "doc:runbook-deploy-error-spike#common-root-causes"
+  ]
+}

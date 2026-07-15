@@ -1,0 +1,16 @@
+{
+  "scenario_id": "scenario_002_db_connection_pool",
+  "title": "Orders API times out from database connection pool exhaustion",
+  "services_affected": [
+    "svc-orders"
+  ],
+  "injected_root_cause": "A slow order-history query held database connections until the orders pool was exhausted.",
+  "root_cause_category": "db_connection_pool",
+  "red_herrings": [],
+  "expected_evidence_refs": [
+    "prometheus:db_pool_active_connections:svc-orders:2026-07-07T14:33:00Z",
+    "log:svc-orders:line:1201",
+    "commit:b2c3d4e",
+    "doc:runbook-db-connection-pool#common-root-causes"
+  ]
+}
