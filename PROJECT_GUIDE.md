@@ -69,7 +69,7 @@ endpoints. It does not invoke the workflow above.
 | `app/ingestion/loader.py` | JSON incident directory loader | Converts a `data/incidents/<id>/` folder to `IncidentScenario`. Backs the scenario catalogue. |
 | `app/retrieval/chunking.py` | Markdown section chunker | Makes one citation-addressable chunk per `##` heading. |
 | `app/retrieval/ingest.py` | Qdrant ingestion | Embeds runbook chunks and upserts them. |
-| `app/retrieval/search.py` | Dense retrieval | Returns runbook hits as `EvidenceObject` values. |
+| `app/retrieval/search.py` | Hybrid retrieval (dense + BM25 via RRF) | Returns runbook hits as `EvidenceObject` values; `mode` selects dense/bm25/hybrid. |
 | `app/agents/correlator.py` | Rule-based evidence gathering + LLM summary | First investigation stage. |
 | `app/agents/root_cause.py` | LLM hypothesis generation | Correlator → retrieval → cited hypotheses. |
 | `app/agents/critic.py` | LLM falsification pass | Demotes or validates hypotheses. |
@@ -197,11 +197,35 @@ time-windowed. These are intentionally simple prototype choices.
 - `ingest.py` uses `sentence-transformers` model `all-MiniLM-L6-v2`, producing
   384-dimensional vectors in Qdrant collection `runbooks` with cosine
   distance.
-- `search.py` embeds a query and performs dense-only top-k search (default
-  `top_k=3`). It converts each hit into `EvidenceObject(source_type="doc")`.
+- `search.py` retrieves hybrid by default: dense vector search fused with
+  BM25 keyword search via Reciprocal Rank Fusion (RRF, `k=60`), converting each
+  hit into `EvidenceObject(source_type="doc")`. `mode="dense"` / `mode="bm25"`
+  isolate a single retriever; the eval harness uses these to compare them. BM25
+  indexes the chunk corpus pulled from Qdrant, so Qdrant stays the single
+  source of truth. For hybrid/bm25, an evidence object's `confidence` is a
+  fused relevance score normalized so the top hit is 1.0 — a ranking signal,
+  not a cosine similarity (dense mode still reports cosine).
 
-There is no BM25, reciprocal-rank fusion, reranker, architecture-document
-corpus, or past-incident corpus yet.
+There is no reranker (cross-encoder), architecture-document corpus, or
+past-incident corpus yet.
+
+Retrieval recall is scored at the **runbook-document level** (see
+`eval.harness.runbook_of`): a scenario's expected `doc:` ref is satisfied if
+any section of that runbook is retrieved. Within one correct runbook, several
+sections (symptoms, root causes, diagnostics, remediation) are all legitimate
+citations, so requiring the single section a scenario happens to label would
+penalize retrieving a valid sibling — that measures label granularity, not
+retriever quality.
+
+Measured on the current catalogue (deterministic, LLM-free, `top_k=2`,
+root-cause-stage query): dense **1.00**, hybrid **1.00**, BM25 alone **0.86**.
+Hybrid does not beat dense on this small, semantically-rich corpus, but it is
+more robust than either component alone: on the db-pool scenario BM25 alone
+retrieves the wrong runbook (0.00) while hybrid preserves dense's correct hit
+(1.00). That robustness — tracking the best retriever per query rather than
+being dragged down by one — is why hybrid is the default. A cross-encoder
+reranker remains the open hybrid sub-item; it would matter more as the corpus
+grows past three runbooks.
 
 ### Root-Cause agent — `app/agents/root_cause.py`
 
@@ -440,9 +464,14 @@ retrieve a report. `app/api/` is currently empty.
 - Retrieval recall is now measured: each scenario's `metadata.json` labels the
   runbook section a correct investigation should cite (a `doc:` ref in
   `expected_evidence_refs`), and the harness scores it separately from
-  evidence-citation recall. A full LLM batch measured ~71% mean retrieval
-  recall (dense-only), with two scenarios at 0.00 — real retriever misses that
-  motivate the hybrid-retrieval upgrade below.
+  evidence-citation recall.
+- Hybrid retrieval (`app/retrieval/search.py`): BM25 keyword search fused with
+  dense vectors via RRF, now the default and selectable per mode. `eval/batch.py`
+  gained `compare_retrieval_modes` / `evaluate_retrieval_recall` to score any
+  retriever offline. Retrieval recall is measured at runbook-document level
+  (`eval.harness.runbook_of`): dense 1.00, hybrid 1.00, BM25 alone 0.86. Hybrid
+  ties dense but is more robust than either component (see the Retriever
+  section). A cross-encoder reranker is the remaining hybrid sub-item.
 
 Note on ref partitioning: `expected_evidence_refs` now mixes investigative
 refs (metric/log/commit) and `doc:` refs. Correlator coverage and root-cause
@@ -461,7 +490,10 @@ don't produce them); retrieval recall scores only the `doc:` refs.
 
 ### Next platform upgrades
 
-2. Hybrid retrieval: BM25 + dense vectors + reciprocal-rank fusion + reranker.
+2. Hybrid retrieval: BM25 + dense + RRF is done; a cross-encoder reranker is
+   the remaining sub-item. Bigger levers for retrieval recall on this corpus
+   are more runbooks (close the config-drift gap) and multi-section / runbook-
+   level relevance labels.
 3. Real incident API and orchestration: incident submission, ledger/report
    retrieval, retries, timeouts, status tracking, and durable storage.
 4. PostgreSQL models and migrations for investigations and reports; Redis/Celery

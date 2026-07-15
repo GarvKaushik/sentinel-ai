@@ -31,6 +31,17 @@ class EvaluationResult:
         return asdict(self)
 
 
+def runbook_of(doc_ref: str) -> str:
+    """The runbook-document part of a doc ref, dropping the section anchor.
+
+    'doc:runbook-db-connection-pool#common-root-causes' -> 'doc:runbook-db-connection-pool'.
+    Retrieval recall is scored at this granularity: within one correct runbook,
+    several sections (symptoms, root causes, diagnostics, remediation) are all
+    legitimate citations, so requiring the one exact section a scenario happens
+    to label would penalize retrieving a valid sibling section."""
+    return doc_ref.split("#", 1)[0]
+
+
 def _all_claim_refs(ledger: EvidenceLedger) -> list[str]:
     """Every citation asserted by a reasoning agent (not the raw evidence
     itself). Used to measure citation precision across the whole ledger."""
@@ -84,8 +95,15 @@ def evaluate_investigation(scenario: IncidentScenario, ledger: EvidenceLedger) -
         else 1.0
     )
 
-    retrieved_docs = {e.source_ref for e in ledger.evidence if e.source_type.value == "doc"}
-    retrieval_recall = len(expected_docs & retrieved_docs) / len(expected_docs) if expected_docs else None
+    expected_runbooks = {runbook_of(ref) for ref in expected_docs}
+    retrieved_runbooks = {
+        runbook_of(e.source_ref) for e in ledger.evidence if e.source_type.value == "doc"
+    }
+    retrieval_recall = (
+        len(expected_runbooks & retrieved_runbooks) / len(expected_runbooks)
+        if expected_runbooks
+        else None
+    )
     if retrieval_recall is None:
         notes.append("No expected document refs are labelled for this scenario; retrieval recall is not scored.")
 
