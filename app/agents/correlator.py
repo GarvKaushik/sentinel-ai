@@ -147,10 +147,17 @@ def correlate_deploys(
     return evidence
 
 
-def run_correlator(scenario: IncidentScenario) -> tuple[EvidenceLedger, str]:
+def run_correlator(
+    scenario: IncidentScenario,
+    include_summary: bool = True,
+) -> tuple[EvidenceLedger, str]:
     """Full Correlator pass over one incident scenario. Returns the
     populated EvidenceLedger plus a plain-English LLM summary (narration
-    only, not itself citable evidence)."""
+    only, not itself citable evidence).
+
+    Set ``include_summary=False`` to skip the LLM call entirely — the
+    deterministic evidence stage then runs with no API key, which is what
+    the batch evaluator uses to score correlator coverage offline."""
 
     ledger = EvidenceLedger(incident_id=scenario.scenario_id)
 
@@ -194,7 +201,11 @@ def run_correlator(scenario: IncidentScenario) -> tuple[EvidenceLedger, str]:
         ledger.add_evidence(ev)
 
     # 4. LLM summary — narration only, built from already-established
-    # evidence, not a source of new claims.
+    # evidence, not a source of new claims. Skipping it lets the batch
+    # evaluator exercise the deterministic stage without an API key.
+    if not include_summary:
+        return ledger, "LLM summary disabled."
+
     evidence_lines = "\n".join(f"- {e.claim}" for e in ledger.evidence)
     summary = chat(
         prompt=(

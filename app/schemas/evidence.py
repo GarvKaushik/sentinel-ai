@@ -93,6 +93,30 @@ class Recommendation(BaseModel):
     )
 
 
+class CitedStatement(BaseModel):
+    """A human-readable statement with the evidence that supports it.
+
+    Postmortems are deliberately built from these rather than plain strings,
+    so provenance can be checked mechanically before a report is shown to an
+    operator or saved as an incident record.
+    """
+
+    text: str = Field(..., min_length=1)
+    supporting_evidence_refs: list[str] = Field(default_factory=list)
+
+
+class PostmortemReport(BaseModel):
+    """Structured, evidence-backed incident report generated after critique."""
+
+    incident_id: str
+    title: str
+    executive_summary: list[CitedStatement] = Field(default_factory=list)
+    timeline: list[CitedStatement] = Field(default_factory=list)
+    root_cause: Optional[CitedStatement] = None
+    recommended_actions: list[CitedStatement] = Field(default_factory=list)
+    validation_errors: list[str] = Field(default_factory=list)
+
+
 class EvidenceLedger(BaseModel):
     """
     The full, running collection of evidence + hypotheses for one incident
@@ -104,6 +128,7 @@ class EvidenceLedger(BaseModel):
     evidence: list[EvidenceObject] = Field(default_factory=list)
     hypotheses: list[Hypothesis] = Field(default_factory=list)
     recommendation: Optional[Recommendation] = None
+    postmortem: Optional[PostmortemReport] = None
 
     def add_evidence(self, item: EvidenceObject) -> None:
         self.evidence.append(item)

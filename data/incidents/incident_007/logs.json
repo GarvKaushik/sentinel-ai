@@ -1,0 +1,9 @@
+[
+  {
+    "timestamp": "2026-07-12T14:33:05Z",
+    "service": "svc-inventory",
+    "level": "ERROR",
+    "message": "ContractMismatchException: inventory response schema v2 cannot be read by v1 consumer",
+    "line_id": "log:svc-inventory:line:991"
+  }
+]

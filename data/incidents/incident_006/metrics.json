@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-07-11T14:30:00Z",
+    "metric_name": "requests_per_second",
+    "value": 180,
+    "service": "svc-search"
+  },
+  {
+    "timestamp": "2026-07-11T14:31:00Z",
+    "metric_name": "requests_per_second",
+    "value": 190,
+    "service": "svc-search"
+  },
+  {
+    "timestamp": "2026-07-11T14:32:00Z",
+    "metric_name": "requests_per_second",
+    "value": 185,
+    "service": "svc-search"
+  },
+  {
+    "timestamp": "2026-07-11T14:33:00Z",
+    "metric_name": "requests_per_second",
+    "value": 1200,
+    "service": "svc-search"
+  },
+  {
+    "timestamp": "2026-07-11T14:34:00Z",
+    "metric_name": "requests_per_second",
+    "value": 1450,
+    "service": "svc-search"
+  },
+  {
+    "timestamp": "2026-07-11T14:35:00Z",
+    "metric_name": "requests_per_second",
+    "value": 1510,
+    "service": "svc-search"
+  }
+]

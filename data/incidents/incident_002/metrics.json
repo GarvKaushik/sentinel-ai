@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-07-07T14:30:00Z",
+    "metric_name": "db_pool_active_connections",
+    "value": 12,
+    "service": "svc-orders"
+  },
+  {
+    "timestamp": "2026-07-07T14:31:00Z",
+    "metric_name": "db_pool_active_connections",
+    "value": 13,
+    "service": "svc-orders"
+  },
+  {
+    "timestamp": "2026-07-07T14:32:00Z",
+    "metric_name": "db_pool_active_connections",
+    "value": 12,
+    "service": "svc-orders"
+  },
+  {
+    "timestamp": "2026-07-07T14:33:00Z",
+    "metric_name": "db_pool_active_connections",
+    "value": 50,
+    "service": "svc-orders"
+  },
+  {
+    "timestamp": "2026-07-07T14:34:00Z",
+    "metric_name": "db_pool_active_connections",
+    "value": 50,
+    "service": "svc-orders"
+  },
+  {
+    "timestamp": "2026-07-07T14:35:00Z",
+    "metric_name": "db_pool_active_connections",
+    "value": 50,
+    "service": "svc-orders"
+  }
+]
