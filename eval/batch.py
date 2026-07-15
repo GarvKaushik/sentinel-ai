@@ -96,6 +96,56 @@ def evaluate_batch(
     return [evaluate_investigation(s, pipeline(s)) for s in (scenarios or discover_incidents())]
 
 
+def evaluate_retrieval_recall(scenario: IncidentScenario, client, model, mode: str, top_k: int = 2) -> float | None:
+    """Retrieval recall for one scenario under a single retriever mode.
+
+    Reproduces exactly the query the Root-Cause agent builds (correlator
+    evidence → runbook query) so the number reflects the real pipeline's
+    primary retrieval step, then scores it against the scenario's expected
+    ``doc:`` refs. Deterministic and LLM-free; needs a populated Qdrant.
+    Returns ``None`` when the scenario labels no expected doc refs."""
+    from app.agents.root_cause import build_runbook_query
+    from app.retrieval.search import search_runbooks
+    from eval.harness import runbook_of
+
+    expected_runbooks = {runbook_of(r) for r in scenario.expected_evidence_refs if r.startswith("doc:")}
+    if not expected_runbooks:
+        return None
+
+    ledger, _ = run_correlator(scenario, include_summary=False)
+    query = build_runbook_query(ledger)
+    retrieved = {runbook_of(h.source_ref) for h in search_runbooks(query, client, model, top_k=top_k, mode=mode)}
+    return len(expected_runbooks & retrieved) / len(expected_runbooks)
+
+
+def compare_retrieval_modes(
+    modes: tuple[str, ...] = ("dense", "bm25", "hybrid"),
+    top_k: int = 2,
+    scenarios: list[IncidentScenario] | None = None,
+) -> dict[str, dict]:
+    """Score retrieval recall for every scenario under each mode. Returns
+    ``{mode: {"per_scenario": {id: recall}, "mean": float}}``."""
+    from sentence_transformers import SentenceTransformer
+    from app.retrieval.ingest import EMBEDDING_MODEL, get_qdrant_client
+
+    scenarios = scenarios or discover_incidents()
+    client = get_qdrant_client(in_memory=False)
+    model = SentenceTransformer(EMBEDDING_MODEL)
+
+    out: dict[str, dict] = {}
+    for mode in modes:
+        per_scenario = {
+            s.scenario_id: evaluate_retrieval_recall(s, client, model, mode=mode, top_k=top_k)
+            for s in scenarios
+        }
+        scored = [v for v in per_scenario.values() if v is not None]
+        out[mode] = {
+            "per_scenario": per_scenario,
+            "mean": mean(scored) if scored else 0.0,
+        }
+    return out
+
+
 def run_full_pipeline(scenario: IncidentScenario) -> EvidenceLedger:
     """Run all agents for an LLM-backed evaluation of one scenario.
 
