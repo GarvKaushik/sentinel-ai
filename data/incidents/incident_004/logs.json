@@ -1,0 +1,9 @@
+[
+  {
+    "timestamp": "2026-07-09T14:33:05Z",
+    "service": "svc-catalog",
+    "level": "ERROR",
+    "message": "ConfigurationError: PRICING_PROVIDER_URL is unset for enabled dynamic-pricing path",
+    "line_id": "log:svc-catalog:line:117"
+  }
+]

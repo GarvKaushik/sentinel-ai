@@ -1,0 +1,15 @@
+{
+  "scenario_id": "scenario_003_dependency_timeout",
+  "title": "Checkout errors after payments dependency timeout",
+  "services_affected": [
+    "svc-checkout"
+  ],
+  "injected_root_cause": "The payments dependency became unavailable, causing checkout requests to time out; no checkout deploy caused the incident.",
+  "root_cause_category": "dependency_timeout",
+  "red_herrings": [],
+  "expected_evidence_refs": [
+    "prometheus:error_rate_pct:svc-checkout:2026-07-08T14:33:00Z",
+    "log:svc-checkout:line:822",
+    "doc:runbook-api-latency-spike#common-root-causes-in-order-of-frequency"
+  ]
+}
