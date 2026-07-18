@@ -1,0 +1,16 @@
+venv/
+.venv/
+.git/
+.gitignore
+__pycache__/
+**/__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+eval/
+tests/
+*.md
+.pytest_cache/
+.mypy_cache/
+temp.py

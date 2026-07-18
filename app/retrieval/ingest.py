@@ -11,6 +11,7 @@ Run this as a script whenever you add/change runbooks:
 """
 
 from __future__ import annotations
+import os
 from pathlib import Path
 
 from qdrant_client import QdrantClient
@@ -23,16 +24,21 @@ COLLECTION_NAME = "runbooks"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 EMBEDDING_DIM = 384
 
+# Where Qdrant lives. Defaults to the local docker-compose port; inside the
+# app container this is set to the compose service URL (http://qdrant:6333).
+DEFAULT_QDRANT_URL = "http://localhost:6333"
+
 
 def get_qdrant_client(in_memory: bool = False) -> QdrantClient:
     """
     in_memory=True is for local testing without Docker running.
-    In normal dev, use in_memory=False to talk to the Qdrant container
-    from docker-compose (localhost:6333).
+    Otherwise connect to Qdrant at QDRANT_URL (env), defaulting to the
+    docker-compose port on localhost. In a container QDRANT_URL is set to
+    the service address, e.g. http://qdrant:6333.
     """
     if in_memory:
         return QdrantClient(location=":memory:")
-    return QdrantClient(url="http://localhost:6333")
+    return QdrantClient(url=os.environ.get("QDRANT_URL", DEFAULT_QDRANT_URL))
 
 
 def ensure_collection(client: QdrantClient) -> None:

@@ -1,6 +1,19 @@
 version: "3.8"
 
 services:
+  app:
+    build: .
+    container_name: sentinel-app
+    environment:
+      # Talk to the Qdrant service by its compose name, not localhost.
+      QDRANT_URL: http://qdrant:6333
+      # Provide GROQ_API_KEY via a local .env file (see .env.example).
+      GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in your .env}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - qdrant
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: sentinel-qdrant

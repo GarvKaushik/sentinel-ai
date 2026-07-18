@@ -56,8 +56,8 @@ Synthetic IncidentScenario / JSON incident files
    Postmortem agent (deterministic; cited structured report)
 ```
 
-The FastAPI service currently exposes only health and schema smoke-test
-endpoints. It does not invoke the workflow above.
+The FastAPI service exposes the workflow above via `POST /investigate`
+(see section 10), running it synchronously per request.
 
 ## 3. Repository map
 
@@ -351,9 +351,17 @@ they appear there.
 
 | Service | Port | Used today |
 | --- | --- | --- |
+| app (this repo's `Dockerfile`) | 8000 | Yes. The FastAPI service; on boot it waits for Qdrant, ingests runbooks, then serves. |
 | Qdrant | 6333 REST, 6334 gRPC | Yes, for persistent runbook retrieval. |
 | PostgreSQL 16 | 5432 | No. Reserved for future incident/report storage. |
 | Redis 7 | 6379 | No. Reserved for future task queue/cache. |
+
+The `app` service reaches Qdrant via `QDRANT_URL=http://qdrant:6333` (the
+compose service name) and reads `GROQ_API_KEY` from your local `.env`. The
+image bakes the embedding model in at build time so startup needs no Hugging
+Face download. `docker-entrypoint.sh` runs the idempotent runbook ingestion
+before starting uvicorn, so a fresh `docker compose up` yields a populated,
+queryable service with no manual steps.
 
 ### LLM provider
 
@@ -369,13 +377,33 @@ commits. Keep `.env` local and ignored; rotate a key if it has been exposed.
 
 ## 9. Setup and exact commands
 
+### Containerized (the deploy path)
+
+The whole stack runs from one command; copy `.env.example` to `.env` and set
+`GROQ_API_KEY` first:
+
+```bash
+cp .env.example .env      # then edit GROQ_API_KEY
+docker compose up --build
+```
+
+This builds the app image, starts Qdrant, waits for it, ingests the runbooks,
+and serves the API on `http://localhost:8000`. Then:
+
+```bash
+curl http://localhost:8000/incidents
+curl -X POST http://localhost:8000/investigate/incident_001
+```
+
+### Local dev (venv)
+
 From the repository root on Windows PowerShell:
 
 ```powershell
-py -3.12 -m venv venv
+py -3.13 -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-docker compose up -d
+docker compose up -d qdrant     # just the vector store
 python -m app.retrieval.ingest
 ```
 
@@ -384,12 +412,14 @@ Create a local `.env` with `GROQ_API_KEY` before LLM-backed commands.
 Useful commands:
 
 ```powershell
-# FastAPI only; does not start an investigation workflow
+# Serve the API (health, catalogue, and the /investigate routes)
 uvicorn app.main:app --reload
 
 # API smoke checks
 Invoke-RestMethod http://localhost:8000/health
-Invoke-RestMethod http://localhost:8000/smoke-test/evidence-ledger
+Invoke-RestMethod http://localhost:8000/incidents
+# Full investigation over HTTP (needs Groq key + populated Qdrant)
+Invoke-RestMethod -Method Post http://localhost:8000/investigate/incident_001
 
 # In-memory retrieval smoke test; downloads/loads the embedding model as needed
 python -m app.retrieval.search
@@ -426,10 +456,17 @@ been populated by `python -m app.retrieval.ingest`.
 | Route | Response |
 | --- | --- |
 | `GET /health` | `{"status": "ok"}` |
+| `GET /incidents` | The built-in incident catalogue ids. |
+| `POST /investigate` | Run a full investigation on an `IncidentScenario` in the request body. |
+| `POST /investigate/{incident_id}` | Run a full investigation on a catalogue incident (e.g. `incident_001`). |
 | `GET /smoke-test/evidence-ledger` | Demonstrates valid and invalid citation resolution using hard-coded evidence. |
 
-There are no endpoints to submit an incident, poll a job, view a ledger, or
-retrieve a report. `app/api/` is currently empty.
+The `/investigate` routes call `app.pipeline.run_investigation` and return the
+completed ledger — hypotheses, recommendation, structured postmortem, and a
+rendered `postmortem_markdown`. They run the LLM-backed pipeline **synchronously**
+(tens of seconds per call); an async job/poll API over Redis/Celery is the next
+step. There is still no persistence — results are returned, not stored.
+`app/api/` remains empty; routes live in `app/main.py`.
 
 ## 11. Reliability and safety rules for future changes
 
