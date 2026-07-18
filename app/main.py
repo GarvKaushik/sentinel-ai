@@ -1,19 +1,85 @@
 """
 Sentinel AI — FastAPI entrypoint.
 
-Week 1 goal: prove the schema + one scenario load correctly and can be
-served over HTTP. No agents, no RAG yet — just the skeleton and a smoke test.
+Exposes the investigation pipeline over HTTP:
+
+  GET  /health                       liveness probe
+  GET  /smoke-test/evidence-ledger   schema self-check (no agents/LLM)
+  GET  /incidents                    list the built-in incident catalogue
+  POST /investigate                  run a full investigation on a posted incident
+  POST /investigate/{incident_id}    run a full investigation on a catalogue incident
+
+The /investigate routes run the whole LLM-backed pipeline synchronously and
+can take tens of seconds; moving them behind a task queue is a planned
+follow-up (see app/pipeline.py).
 """
 
-from fastapi import FastAPI
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+
 from app.schemas.evidence import EvidenceLedger, EvidenceObject, SourceType
+from app.schemas.scenario import IncidentScenario
+from app.ingestion.loader import load_incident
+from app.pipeline import run_investigation
+from app.agents.postmortem import render_markdown
 
 app = FastAPI(title="Sentinel AI", version="0.1.0")
+
+INCIDENTS_DIR = Path(__file__).resolve().parents[1] / "data" / "incidents"
+
+
+def _catalogue_ids() -> list[str]:
+    """Names of built-in incident folders (those with a metadata.json)."""
+    if not INCIDENTS_DIR.exists():
+        return []
+    return sorted(p.name for p in INCIDENTS_DIR.iterdir() if p.is_dir() and (p / "metadata.json").exists())
+
+
+def _ledger_response(ledger: EvidenceLedger) -> dict:
+    """Serialize a completed investigation for the API, including a
+    human-readable rendered postmortem alongside the structured ledger."""
+    return {
+        "incident_id": ledger.incident_id,
+        "evidence_count": len(ledger.evidence),
+        "hypotheses": [h.model_dump() for h in ledger.hypotheses],
+        "recommendation": ledger.recommendation.model_dump() if ledger.recommendation else None,
+        "postmortem": ledger.postmortem.model_dump() if ledger.postmortem else None,
+        "postmortem_markdown": render_markdown(ledger.postmortem) if ledger.postmortem else None,
+    }
 
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/incidents")
+def list_incidents():
+    """The built-in incident catalogue that /investigate/{incident_id} can run."""
+    return {"incidents": _catalogue_ids()}
+
+
+@app.post("/investigate")
+def investigate(scenario: IncidentScenario):
+    """Run a full investigation on an incident supplied in the request body."""
+    ledger = run_investigation(scenario)
+    return _ledger_response(ledger)
+
+
+@app.post("/investigate/{incident_id}")
+def investigate_catalogue(incident_id: str):
+    """Run a full investigation on a built-in catalogue incident by id."""
+    if incident_id not in _catalogue_ids():  # also rejects path traversal — id must match a known folder
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown incident_id '{incident_id}'. Known: {_catalogue_ids()}",
+        )
+    scenario = load_incident(INCIDENTS_DIR / incident_id)
+    ledger = run_investigation(scenario)
+    return _ledger_response(ledger)
 
 
 @app.get("/smoke-test/evidence-ledger")
