@@ -13,6 +13,9 @@ services:
       DATABASE_URL: postgresql+psycopg://sentinel:sentinel_dev_pw@postgres:5432/sentinel
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      # The image is light (no torch), so it uses the hosted Jina embedder.
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-jina}
+      JINA_API_KEY: ${JINA_API_KEY:?set JINA_API_KEY in your .env (image uses the hosted embedder)}
       # Provide GROQ_API_KEY via a local .env file (see .env.example).
       GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in your .env}
     ports:
@@ -46,6 +49,8 @@ services:
       DATABASE_URL: postgresql+psycopg://sentinel:sentinel_dev_pw@postgres:5432/sentinel
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-jina}
+      JINA_API_KEY: ${JINA_API_KEY:?set JINA_API_KEY in your .env (image uses the hosted embedder)}
       GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in your .env}
     depends_on:
       postgres:

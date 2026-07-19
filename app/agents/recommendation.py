@@ -20,7 +20,7 @@ import json
 
 from app.schemas.evidence import EvidenceLedger, Recommendation, Hypothesis
 from app.llm.client import chat
-from app.retrieval.ingest import get_qdrant_client, EMBEDDING_MODEL
+from app.retrieval.ingest import get_qdrant_client
 from app.retrieval.search import search_runbooks
 
 RECOMMENDATION_MODEL = "openai/gpt-oss-120b"
@@ -93,12 +93,12 @@ def run_recommendation(ledger: EvidenceLedger, use_in_memory_qdrant: bool = Fals
         return ledger
 
     # Retrieve remediation-specific runbook guidance, grounded in the top hypothesis
-    from sentence_transformers import SentenceTransformer
+    from app.retrieval.embeddings import get_embedder
     client = get_qdrant_client(in_memory=use_in_memory_qdrant)
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    embedder = get_embedder()
 
     query = build_remediation_query(top_hyp)
-    remediation_evidence = search_runbooks(query, client, model, top_k=2, produced_by="recommendation_agent")
+    remediation_evidence = search_runbooks(query, client, embedder, top_k=2, produced_by="recommendation_agent")
     for e in remediation_evidence:
         # avoid duplicate refs if the same chunk was already retrieved earlier
         if ledger.resolve_ref(e.source_ref) is None:

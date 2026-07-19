@@ -202,9 +202,12 @@ time-windowed. These are intentionally simple prototype choices.
 
 - `chunking.py` splits each runbook into chunks on `##` headings. It prepends
   the document title to each chunk and derives a readable citation slug.
-- `ingest.py` uses `sentence-transformers` model `all-MiniLM-L6-v2`, producing
-  384-dimensional vectors in Qdrant collection `runbooks` with cosine
-  distance.
+- Embeddings come from the pluggable backend in `app/retrieval/embeddings.py`,
+  selected by `EMBEDDING_BACKEND`: `local` (sentence-transformers
+  `all-MiniLM-L6-v2`, 384-dim, offline) or `jina` (hosted `jina-embeddings-v3`,
+  1024-dim, no torch — the light deploy path). `ingest.py` (re)creates the
+  Qdrant `runbooks` collection at the active backend's vector size with cosine
+  distance, so switching backends is safe.
 - `search.py` retrieves hybrid by default: dense vector search fused with
   BM25 keyword search via Reciprocal Rank Fusion (RRF, `k=60`), converting each
   hit into `EvidenceObject(source_type="doc")`. `mode="dense"` / `mode="bm25"`
@@ -346,10 +349,13 @@ Use Python 3.12 where possible. The project currently pins:
 - Pydantic v2
 - `python-dotenv`
 - Qdrant client
-- `sentence-transformers`
-- OpenAI Python SDK
+- OpenAI Python SDK, `httpx`
+- SQLAlchemy + `psycopg` (Postgres), `celery[redis]` (async worker)
 
-See `requirements.txt` for exact versions. `FUTURE_DEPENDENCIES.md` lists
+`requirements.txt` is the light **deploy** set (no torch). The local embedding
+backend (`sentence-transformers` + torch) lives in `requirements-local.txt` for
+dev/CI — `pip install -r requirements-local.txt`. See `requirements.txt` for
+exact versions. `FUTURE_DEPENDENCIES.md` lists
 packages that are deliberately deferred; do not install them merely because
 they appear there.
 
@@ -372,11 +378,14 @@ The whole demo starts with **one command** — `docker compose up --build` — a
 opens at `http://localhost:8501` (the cockpit). Services reach each other by
 compose DNS names: the Sentinel `app` uses `QDRANT_URL=http://qdrant:6333`,
 `PROMETHEUS_URL=http://prometheus:9090`, `TARGET_URL=http://dummy:9000`, and reads
-`GROQ_API_KEY` from your local `.env`; the `cockpit` uses internal URLs for its
-own calls but shows `localhost` links for the browser. The app image bakes the
-embedding model in at build time, and `docker-entrypoint.sh` runs the idempotent
-runbook ingestion before serving, so a fresh `up` is fully populated with no
-manual steps.
+`GROQ_API_KEY` and `JINA_API_KEY` from your local `.env`; the `cockpit` uses
+internal URLs for its own calls but shows `localhost` links for the browser. The
+app image is light (no torch — it uses the hosted Jina embedder), and
+`docker-entrypoint.sh` runs the idempotent runbook ingestion before serving, so a
+fresh `up` is fully populated with no manual steps. Because the image uses the
+hosted embedder, the containerized stack needs a (free) `JINA_API_KEY` alongside
+`GROQ_API_KEY`; bare-`uvicorn` local dev instead defaults to the offline local
+backend via `requirements-local.txt`.
 
 ### LLM provider
 
@@ -417,12 +426,14 @@ From the repository root on Windows PowerShell:
 ```powershell
 py -3.13 -m venv venv
 .\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements-local.txt   # base deps + the local (offline) embedder
 docker compose up -d qdrant     # just the vector store
 python -m app.retrieval.ingest
 ```
 
-Create a local `.env` with `GROQ_API_KEY` before LLM-backed commands.
+Create a local `.env` with `GROQ_API_KEY` before LLM-backed commands. Local dev
+defaults to the offline `local` embedding backend (installed above); set
+`EMBEDDING_BACKEND=jina` + `JINA_API_KEY` to use the hosted embedder instead.
 
 Useful commands:
 
