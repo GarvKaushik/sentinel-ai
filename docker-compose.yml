@@ -10,7 +10,7 @@ services:
       PROMETHEUS_URL: http://prometheus:9090   # ingestion adapter: metric queries
       TARGET_URL: http://dummy:9000            # ingestion adapter: logs + deploys
       # Persistence (investigation history) + async job queue.
-      DATABASE_URL: postgresql+psycopg://sentinel:sentinel_dev_pw@postgres:5432/sentinel
+      DATABASE_URL: postgresql+psycopg://sentinel:${POSTGRES_PASSWORD}@postgres:5432/sentinel
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       # The image is light (no torch), so it uses the hosted Jina embedder.
@@ -46,7 +46,7 @@ services:
       QDRANT_URL: http://qdrant:6333
       PROMETHEUS_URL: http://prometheus:9090
       TARGET_URL: http://dummy:9000
-      DATABASE_URL: postgresql+psycopg://sentinel:sentinel_dev_pw@postgres:5432/sentinel
+      DATABASE_URL: postgresql+psycopg://sentinel:${POSTGRES_PASSWORD}@postgres:5432/sentinel
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-jina}
@@ -69,9 +69,7 @@ services:
   qdrant:
     image: qdrant/qdrant:latest
     container_name: sentinel-qdrant
-    ports:
-      - "6333:6333"   # REST API
-      - "6334:6334"   # gRPC
+    # No host ports: reached only over the internal network by app/worker.
     volumes:
       - qdrant_data:/qdrant/storage
 
@@ -80,10 +78,9 @@ services:
     container_name: sentinel-postgres
     environment:
       POSTGRES_USER: sentinel
-      POSTGRES_PASSWORD: sentinel_dev_pw
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your .env}
       POSTGRES_DB: sentinel
-    ports:
-      - "5432:5432"
+    # No host port: reached only over the internal network by app/worker.
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -97,8 +94,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: sentinel-redis
-    ports:
-      - "6379:6379"
+    # No host port: reached only over the internal network by app/worker.
     volumes:
       - redis_data:/data
     healthcheck:

@@ -370,22 +370,31 @@ they appear there.
 | cockpit (`ui/Dockerfile`) | 8501 | Yes. The Streamlit demo cockpit — fault injection, live telemetry, async investigation, persisted history. |
 | dummy (`dummy/Dockerfile`) | 9000 | Yes. The target service Sentinel observes; exposes `/metrics`, `/logs`, `/deploys`, fault injection. |
 | Prometheus | 9090 | Yes. Scrapes the dummy; Sentinel's adapter queries it. |
-| Qdrant | 6333 REST, 6334 gRPC | Yes, for persistent runbook retrieval. |
-| PostgreSQL 16 | 5432 | Yes. Stores every investigation (`investigations` table); backs the history view. |
-| Redis 7 | 6379 | Yes. Celery broker (db 0) + result backend (db 1) for async `/alert`. |
+| Qdrant | internal | Yes, for persistent runbook retrieval. Not published to the host. |
+| PostgreSQL 16 | internal | Yes. Stores every investigation (`investigations` table); backs the history view. Not published to the host. |
+| Redis 7 | internal | Yes. Celery broker (db 0) + result backend (db 1) for async `/alert`. Not published to the host. |
 
 The whole demo starts with **one command** — `docker compose up --build` — and
 opens at `http://localhost:8501` (the cockpit). Services reach each other by
 compose DNS names: the Sentinel `app` uses `QDRANT_URL=http://qdrant:6333`,
 `PROMETHEUS_URL=http://prometheus:9090`, `TARGET_URL=http://dummy:9000`, and reads
-`GROQ_API_KEY` and `JINA_API_KEY` from your local `.env`; the `cockpit` uses
-internal URLs for its own calls but shows `localhost` links for the browser. The
-app image is light (no torch — it uses the hosted Jina embedder), and
-`docker-entrypoint.sh` runs the idempotent runbook ingestion before serving, so a
-fresh `up` is fully populated with no manual steps. Because the image uses the
-hosted embedder, the containerized stack needs a (free) `JINA_API_KEY` alongside
-`GROQ_API_KEY`; bare-`uvicorn` local dev instead defaults to the offline local
-backend via `requirements-local.txt`.
+`GROQ_API_KEY`, `JINA_API_KEY`, and `POSTGRES_PASSWORD` from your local `.env`;
+the `cockpit` uses internal URLs for its own calls but shows `localhost` links for
+the browser. The app image is light (no torch — it uses the hosted Jina embedder),
+and `docker-entrypoint.sh` runs the idempotent runbook ingestion before serving,
+so a fresh `up` is fully populated with no manual steps. Because the image uses
+the hosted embedder, the containerized stack needs a (free) `JINA_API_KEY`
+alongside `GROQ_API_KEY`; bare-`uvicorn` local dev instead defaults to the offline
+local backend via `requirements-local.txt`.
+
+**Deploy hardening:** the datastores (Postgres, Redis, Qdrant) publish **no host
+ports** — they're reachable only over the internal compose network, so they're
+not exposed on a public VM. The Postgres password comes from `POSTGRES_PASSWORD`
+in `.env` (no credential is committed); use a strong, URL-safe value on a real
+deploy. Note Postgres only applies the password on first volume init, so changing
+it later needs `docker compose down -v`. The app API and cockpit themselves have
+no auth yet — put them behind a reverse proxy (or IP allowlist) for a real public
+deploy.
 
 ### LLM provider
 

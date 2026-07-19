@@ -61,6 +61,7 @@ jobs:
           # Only satisfy the ${VAR:?} interpolations; not used at config time.
           GROQ_API_KEY: ci-placeholder
           JINA_API_KEY: ci-placeholder
+          POSTGRES_PASSWORD: ci-placeholder
         run: docker compose config -q
       - name: Build light images (dummy + cockpit)
         run: |
