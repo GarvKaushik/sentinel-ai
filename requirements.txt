@@ -18,3 +18,14 @@ httpx==0.27.2   # pinned: newer httpx drops the 'proxies' kwarg openai 1.51.0 pa
 
 # --- Added for hybrid retrieval (BM25 keyword search fused with dense vectors) ---
 rank-bm25==0.2.2
+
+# --- Added for Postgres persistence (investigation history) ---
+# SQLAlchemy is the ORM; psycopg (v3) is the Postgres driver. The generic JSON
+# column maps to JSONB on Postgres and plain JSON on SQLite (used in tests).
+SQLAlchemy==2.0.35
+psycopg[binary]==3.2.3
+
+# --- Added for async execution (Redis broker + Celery worker) ---
+# celery[redis] pulls in the redis-py client. /alert enqueues a job onto Redis
+# and a separate worker process runs the ~20s pipeline off the request path.
+celery[redis]==5.4.0

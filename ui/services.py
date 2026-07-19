@@ -135,11 +135,39 @@ def prom_range(query: str, minutes: int = 10, step: int = 20) -> list[float]:
 
 # --- Sentinel AI ---
 def run_alert(service: str, metric: str, window_minutes: int) -> dict:
-    """Trigger a live investigation. The pipeline is LLM-backed (~20s)."""
+    """Fire an alert at Sentinel. Returns the raw /alert response, which is
+    either an async handle ({investigation_id, status: 'queued'}) when the queue
+    is configured, or the full synchronous result in a DB-less dev setup."""
     r = requests.post(
         f"{SENTINEL_URL}/alert",
         json={"service": service, "metric": metric, "window_minutes": window_minutes},
-        timeout=180,
+        timeout=30,
     )
     r.raise_for_status()
     return r.json()
+
+
+def get_investigation(investigation_id: int) -> dict:
+    r = requests.get(f"{SENTINEL_URL}/investigations/{investigation_id}", timeout=10)
+    r.raise_for_status()
+    return r.json()
+
+
+def poll_investigation(investigation_id: int, timeout: int = 180, interval: float = 2.0) -> dict:
+    """Poll the job until it is done/failed (the Celery worker runs it ~20s).
+    Returns the final record; if the timeout is hit, returns the last read
+    (its status will still be queued/running)."""
+    deadline = time.time() + timeout
+    record = get_investigation(investigation_id)
+    while time.time() < deadline:
+        if record.get("status") in ("done", "failed"):
+            return record
+        time.sleep(interval)
+        record = get_investigation(investigation_id)
+    return record
+
+
+def list_investigations(limit: int = 20) -> list[dict]:
+    r = requests.get(f"{SENTINEL_URL}/investigations", params={"limit": limit}, timeout=10)
+    r.raise_for_status()
+    return r.json().get("investigations", [])

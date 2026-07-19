@@ -1,6 +1,7 @@
 services:
   app:
     build: .
+    image: sentinel-app          # named so the worker can reuse this exact image
     container_name: sentinel-app
     environment:
       # Reach the other services by their compose names, not localhost — inside
@@ -8,14 +9,57 @@ services:
       QDRANT_URL: http://qdrant:6333
       PROMETHEUS_URL: http://prometheus:9090   # ingestion adapter: metric queries
       TARGET_URL: http://dummy:9000            # ingestion adapter: logs + deploys
+      # Persistence (investigation history) + async job queue.
+      DATABASE_URL: postgresql+psycopg://sentinel:sentinel_dev_pw@postgres:5432/sentinel
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
       # Provide GROQ_API_KEY via a local .env file (see .env.example).
       GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in your .env}
     ports:
       - "8000:8000"
     depends_on:
-      - qdrant
-      - prometheus
-      - dummy
+      # Wait until Postgres/Redis are actually accepting connections (not just
+      # started), so the schema bootstrap on app startup can't lose the race.
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      dummy:
+        condition: service_started
+
+  # Celery worker: same image as `app`, but runs the queue consumer instead of
+  # the web server. It pulls jobs off Redis and runs the ~20s pipeline, writing
+  # results to Postgres. `entrypoint` bypasses docker-entrypoint.sh (which would
+  # otherwise start uvicorn); the app container handles Qdrant ingestion.
+  worker:
+    image: sentinel-app
+    container_name: sentinel-worker
+    entrypoint: ["celery", "-A", "app.tasks:celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      PROMETHEUS_URL: http://prometheus:9090
+      TARGET_URL: http://dummy:9000
+      DATABASE_URL: postgresql+psycopg://sentinel:sentinel_dev_pw@postgres:5432/sentinel
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in your .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      dummy:
+        condition: service_started
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -37,6 +81,13 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready reports 'accepting connections' — the true readiness signal.
+      test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   redis:
     image: redis:7-alpine
@@ -45,6 +96,12 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 2s
 
   # --- Demo stack: the target service Sentinel observes, and its Prometheus ---
   dummy:

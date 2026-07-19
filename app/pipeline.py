@@ -26,8 +26,8 @@ def run_investigation(scenario: IncidentScenario) -> EvidenceLedger:
     with hypotheses, recommendation, and postmortem attached.
 
     Synchronous and LLM-backed: this makes several model calls and can take
-    tens of seconds. Moving it behind a task queue (Redis/Celery) so the API
-    can return a job id immediately is a planned follow-up."""
+    tens of seconds. The /alert endpoint runs it off the request path via a
+    Celery worker (app/tasks.py); direct callers here run it inline."""
     ledger = run_root_cause_investigation(scenario)
     ledger = run_critic(ledger)
     ledger = run_recommendation(ledger)
