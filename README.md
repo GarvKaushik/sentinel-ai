@@ -2,6 +2,9 @@
 
 **Autonomous incident investigation — where every claim is cited to real evidence.**
 
+🔗 **Live demo:** [garv-sentinel-ai.duckdns.org](https://garv-sentinel-ai.duckdns.org)
+— the full stack running on a free-tier cloud VM behind HTTPS.
+
 Sentinel AI takes a production incident (metrics, logs, deploy history), gathers
 structured evidence, retrieves relevant runbook guidance, proposes and
 *adversarially falsifies* root-cause hypotheses, and produces a grounded
@@ -27,6 +30,8 @@ prompt — unresolved citations are stripped and unsupported hypotheses dropped.
 - **One-command stack**: 8 services via `docker compose up`, with health-gated
   startup and a Streamlit cockpit to drive the whole demo.
 - **CI**: GitHub Actions runs lint + an offline test suite + Docker build checks.
+- **Deployed for real**: live on an Oracle Cloud Always-Free ARM VM behind a
+  Caddy reverse-proxy — auto HTTPS (Let's Encrypt) and per-IP rate limiting.
 
 ## How it works
 
@@ -75,6 +80,19 @@ Then open the cockpit at **http://localhost:8501** — inject one of 12
 manufactured faults, watch the live telemetry move, run an investigation, and
 browse the persisted history. The stack self-ingests the runbooks on first boot.
 
+> **Heads-up for a fresh local clone.** The `caddy` service (the HTTPS
+> reverse-proxy used for the public deploy) mounts `./Caddyfile`, which is
+> **git-ignored** — so on a fresh clone that file doesn't exist and *only the
+> `caddy` container will fail to start*. The rest of the stack (cockpit, app,
+> worker, datastores) comes up fine and the cockpit is still at
+> `localhost:8501`. To silence the failure, either:
+> - `cp Caddyfile.example Caddyfile` before `docker compose up` (it'll try to
+>   fetch a cert for the placeholder hostname — harmless locally), or
+> - skip it entirely: `docker compose up -d --build --scale caddy=0`, or just
+>   ignore the one failed container.
+>
+> Caddy is only needed for a public HTTPS deploy — see [Deployment](#deployment).
+
 ## The demo cockpit
 
 One screen to drive everything: service status, one-click fault injection (and
@@ -113,9 +131,22 @@ dummy/         the fault-injecting target service
 ui/            the Streamlit cockpit
 ```
 
+## Deployment
+
+The live demo runs the whole `docker compose` stack on a single **Oracle Cloud
+Always-Free** ARM VM (`VM.Standard.A1.Flex`), fronted by a **Caddy**
+reverse-proxy that terminates HTTPS (automatic Let's Encrypt certificate for a
+free DuckDNS hostname) and rate-limits per client IP. Only ports 80/443 are
+public; the app, cockpit, and every datastore stay on the internal Docker
+network. Deploying elsewhere is the same `docker compose up -d --build` — see
+[`Caddyfile.example`](Caddyfile.example) and [`caddy/Dockerfile`](caddy/Dockerfile)
+for the proxy (the real `Caddyfile` is git-ignored, like `.env`).
+
 ## Status & notes
 
 A portfolio project, not a hardened product. It runs as a single-node
 `docker compose` stack; the datastores aren't exposed on the host and the
-Postgres password comes from `.env`. The API and cockpit have no auth yet — put
-them behind a reverse proxy (or IP allowlist) for a public deploy.
+Postgres password comes from `.env`. The app and cockpit have no login of their
+own — the public demo relies on the Caddy layer (HTTPS + rate limit) in front,
+and you can drop in Caddy basic-auth or an IP allowlist if you need it locked
+down further.
