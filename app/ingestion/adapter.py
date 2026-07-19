@@ -1,20 +1,17 @@
-"""
-Live ingestion adapter: real telemetry -> IncidentScenario.
+"""Live telemetry -> IncidentScenario.
 
-This is the seam that turns Sentinel from "runs on fixture JSON" into
+The front door that turns Sentinel from "runs on fixture JSON" into
 "investigates a live system." Given an alert (service + which metric fired +
 a time window) it:
 
-  1. runs a PromQL range query against Prometheus for that metric, producing a
-     baseline->spike time series the deterministic correlator can analyze,
-  2. pulls recent structured logs and the deploy history from the target
-     service,
-  3. assembles them into the same IncidentScenario every downstream agent
-     already speaks — no ground-truth fields, because a real incident has none.
+  1. runs a PromQL range query for that metric (a baseline->spike series the
+     correlator can analyze),
+  2. pulls recent logs + deploy history from the target,
+  3. packs them into the same IncidentScenario the agents already speak — with
+     no ground-truth fields, since a real incident has none.
 
-Everything downstream (correlator -> ... -> postmortem) is unchanged; only the
-front door is new. Metric names and PromQL live here so the rest of the system
-stays telemetry-agnostic.
+Everything downstream is unchanged; only this front door is new. PromQL lives
+here so the rest of the system stays telemetry-agnostic.
 """
 
 from __future__ import annotations

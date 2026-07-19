@@ -1,14 +1,12 @@
-"""Data-access functions for the ``investigations`` table.
+"""Reading and writing the investigations table.
 
-Every function is a no-op (returns None / []) when persistence is disabled, so
-callers never have to check ``engine_available()`` themselves. Writes are also
-wrapped in try/except: a persistence hiccup must never take down a live
-investigation — the result is still returned to the caller, just not saved.
+Every function is a no-op (None / []) when persistence is off, so callers don't
+have to check first. Writes are wrapped in try/except — a DB hiccup must never
+take down a live investigation; the result still goes back to the caller.
 
-Two access patterns:
-  * synchronous  -> ``save_completed`` writes a finished ledger in one shot.
-  * asynchronous -> ``create_pending`` then ``mark_running`` / ``mark_done`` /
-                    ``mark_failed`` track a Celery job's lifecycle.
+Sync path: save_completed writes a finished ledger in one shot.
+Async path: create_pending, then mark_running / mark_done / mark_failed track a
+Celery job.
 """
 
 from __future__ import annotations

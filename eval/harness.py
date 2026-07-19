@@ -1,12 +1,9 @@
-"""Repeatable, non-LLM evaluation metrics for completed investigations.
+"""Non-LLM eval metrics for a finished investigation.
 
-Scores only objective, mechanically-checkable properties of a single
-finished investigation. It deliberately does NOT try to judge semantic
-root-cause correctness by string similarity — that would fake a metric the
-system can't honestly claim. Where a metric can't be scored for a given
-scenario (e.g. no labelled doc refs, no decoy hypothesis to challenge the
-critic), it returns ``None`` and records why in ``notes`` rather than
-inventing a number.
+Scores only objective, mechanically-checkable things. It does NOT judge semantic
+root-cause correctness by string similarity — that would fake a metric we can't
+honestly claim. When a metric can't be scored (no labelled doc refs, no decoy to
+challenge the critic), it returns None and says why in `notes`.
 """
 
 from __future__ import annotations
@@ -32,19 +29,16 @@ class EvaluationResult:
 
 
 def runbook_of(doc_ref: str) -> str:
-    """The runbook-document part of a doc ref, dropping the section anchor.
-
+    """Drop the section anchor from a doc ref:
     'doc:runbook-db-connection-pool#common-root-causes' -> 'doc:runbook-db-connection-pool'.
-    Retrieval recall is scored at this granularity: within one correct runbook,
-    several sections (symptoms, root causes, diagnostics, remediation) are all
-    legitimate citations, so requiring the one exact section a scenario happens
-    to label would penalize retrieving a valid sibling section."""
+    Retrieval recall is scored per runbook, not per section — several sections of
+    the right runbook are all valid citations."""
     return doc_ref.split("#", 1)[0]
 
 
 def _all_claim_refs(ledger: EvidenceLedger) -> list[str]:
-    """Every citation asserted by a reasoning agent (not the raw evidence
-    itself). Used to measure citation precision across the whole ledger."""
+    """Every ref a reasoning agent cited (not the raw evidence). Used for
+    citation precision."""
     refs: list[str] = []
     for hypothesis in ledger.hypotheses:
         refs.extend(hypothesis.supporting_evidence_refs)
@@ -63,18 +57,14 @@ def _all_claim_refs(ledger: EvidenceLedger) -> list[str]:
 
 
 def evaluate_investigation(scenario: IncidentScenario, ledger: EvidenceLedger) -> EvaluationResult:
-    """Score only objective, inspectable properties of one investigation.
+    """Score the objective, inspectable properties of one investigation.
 
-    ``root_cause_evidence_recall`` checks whether the top surviving hypothesis
-    cites the evidence the scenario expects. It intentionally does not claim
-    semantic root-cause accuracy; that requires a labelled assertion matcher
-    or manual review and should never be faked by string similarity.
-    """
+    root_cause_evidence_recall checks whether the top surviving hypothesis cites
+    the expected evidence — not semantic accuracy, which we don't fake."""
     notes: list[str] = []
-    # Partition expected refs: doc refs are scored by retrieval_recall, while
-    # investigative refs (metric/log/commit) are what a hypothesis is expected
-    # to cite. Mixing them would let a missing runbook citation drag down
-    # root-cause recall, or vice versa.
+    # Split expected refs: doc refs are scored by retrieval_recall; the rest
+    # (metric/log/commit) are what a hypothesis should cite. Mixing them would
+    # let a missing runbook citation drag down root-cause recall.
     expected = set(scenario.expected_evidence_refs)
     expected_docs = {ref for ref in expected if ref.startswith("doc:")}
     expected_evidence = expected - expected_docs

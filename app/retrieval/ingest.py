@@ -28,12 +28,8 @@ DEFAULT_QDRANT_URL = "http://localhost:6333"
 
 
 def get_qdrant_client(in_memory: bool = False) -> QdrantClient:
-    """
-    in_memory=True is for local testing without Docker running.
-    Otherwise connect to Qdrant at QDRANT_URL (env), defaulting to the
-    docker-compose port on localhost. In a container QDRANT_URL is set to
-    the service address, e.g. http://qdrant:6333.
-    """
+    """Connect to Qdrant. in_memory=True runs an embedded instance for local
+    testing without Docker; otherwise use QDRANT_URL (default localhost)."""
     if in_memory:
         return QdrantClient(location=":memory:")
     return QdrantClient(url=os.environ.get("QDRANT_URL", DEFAULT_QDRANT_URL))

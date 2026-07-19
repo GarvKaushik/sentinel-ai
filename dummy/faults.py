@@ -1,12 +1,9 @@
-"""
-Fault catalogue for the dummy target service.
+"""Fault catalogue for the dummy service.
 
-Each entry describes how one manufactured failure mode shifts the service's
-telemetry, so the background simulator in app.py can reproduce the metric +
-log signature that Sentinel AI's runbooks describe. This is the single source
-of truth shared with data/runbooks/ — keep the keys in sync with those files.
-
-A profile only lists what CHANGES from BASELINE; everything else stays healthy.
+Each entry says how one failure mode shifts the telemetry, so the simulator in
+app.py can reproduce the metric + log signature that a runbook describes. Keep
+the keys in sync with data/runbooks/. A profile only lists what CHANGES from
+BASELINE; everything else stays healthy.
 """
 
 from __future__ import annotations
@@ -25,10 +22,9 @@ BASELINE = {
     "db_pool_max": 50,       # pool size
 }
 
-# fault_id -> profile. "runbook" is the matching data/runbooks/ doc stem.
-# "deploy" (if present) is appended to the deploy log when the fault activates,
-# so deploy-linked incidents produce real commit evidence. "ramp" marks a
-# gauge that should climb over time rather than step-change.
+# fault_id -> profile. "runbook" is the matching data/runbooks/ stem. "deploy"
+# (if present) is added to the deploy log so deploy-linked incidents get a real
+# commit. "ramp" marks a gauge that climbs over time instead of step-changing.
 FAULTS: dict[str, dict] = {
     "bad_deploy": {
         "category": "bad_deploy",

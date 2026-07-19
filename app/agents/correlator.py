@@ -1,17 +1,10 @@
-"""
-Correlator Agent.
+"""Correlator — finds the anomalies, deterministically.
 
-Deliberately rule-based for the actual anomaly DETECTION — threshold
-checks on metrics, service-inference on commits, time-window filtering
-on logs. This is more reliable and far cheaper than asking an LLM to
-eyeball a time series, and it means the EvidenceObjects this agent
-produces are grounded in arithmetic, not a model's guess.
-
-The LLM (via app/llm/client.py) is used ONLY at the very end, to write
-a one-paragraph plain-English summary of what was found — for the
-investigation dashboard/trace view. That summary is explicitly NOT
-itself an EvidenceObject and carries no source_ref — it's narration
-over evidence that's already been established deterministically.
+Detection is plain rules (threshold on metrics, service-inference on commits,
+time-window on logs), not an LLM — cheaper and more reliable, and the evidence
+it produces is grounded in arithmetic. The LLM is used only at the very end to
+write a short plain-English summary for the dashboard; that summary is NOT
+evidence and has no source_ref.
 """
 
 from __future__ import annotations
@@ -26,7 +19,7 @@ ANOMALY_THRESHOLD_MULTIPLIER = 3.0
 
 # A commit is only considered a plausible cause if it landed within this
 # many seconds BEFORE the anomaly onset for its inferred service.
-COMMIT_CORRELATION_WINDOW_SECONDS = 300  # 5 minutes
+COMMIT_CORRELATION_WINDOW_SECONDS = 300  # (5 minutes)
 
 
 def _parse_ts(ts: str) -> datetime:
@@ -34,15 +27,9 @@ def _parse_ts(ts: str) -> datetime:
 
 
 def detect_metric_anomalies(metrics: list[MetricPoint]) -> dict[str, dict]:
-    """
-    Per service, find the baseline (mean of the first half of points) and
-    the first point that exceeds baseline * ANOMALY_THRESHOLD_MULTIPLIER.
-    Returns {service_name: {"baseline": float, "onset_point": MetricPoint}}
-    for services where an anomaly was found. Services with no anomaly are
-    omitted entirely — this is what lets the Root-Cause agent later
-    correctly ignore services that stayed flat (like the notifications
-    decoy in scenario_001).
-    """
+    """Per service: baseline = mean of the first half of points; flag the first
+    later point above baseline * ANOMALY_THRESHOLD_MULTIPLIER. Returns
+    {service: {"baseline", "onset_point"}} for services with an anomaly."""
     by_service: dict[str, list[MetricPoint]] = {}
     for m in metrics:
         by_service.setdefault(m.service, []).append(m)
@@ -70,14 +57,11 @@ def detect_metric_anomalies(metrics: list[MetricPoint]) -> dict[str, dict]:
 
 
 def infer_commit_service(commit: CommitInfo, known_services: list[str]) -> str | None:
-    """Guess which service a commit belongs to by checking whether the
-    service name appears anywhere in the changed file paths. Crude but
-    effective for realistic monorepo/microservice path conventions
-    (e.g. 'src/main/java/payments/...' -> 'svc-payments' if 'payments'
-    is in the service name)."""
+    """Guess a commit's service by matching the service name against its
+    changed file paths."""
 
     for service in known_services:
-        # strip common "svc-" prefix for matching against path segments
+        # match against "checkout", not "svc-checkout"
         bare_name = service.replace("svc-", "")
         for f in commit.files_changed:
             if bare_name.lower() in f.lower():
@@ -90,12 +74,9 @@ def correlate_deploys(
     metric_anomalies: dict[str, dict],
     known_services: list[str],
 ) -> list[EvidenceObject]:
-    """For each commit, check whether it plausibly explains an anomaly:
-    same inferred service AND landed shortly before that service's
-    anomaly onset. Commits that don't meet both conditions still get
-    recorded, but as explicitly ruled-out evidence — this is what gives
-    the Critic agent something concrete to point to when a red-herring
-    commit gets suggested later ("ruled out: wrong service")."""
+    """For each commit: is it a plausible cause? (same service as an anomaly AND
+    landed just before its onset). Emits an EvidenceObject either way — hits and
+    explicit rule-outs — so the Critic has something concrete to point at."""
 
     evidence: list[EvidenceObject] = []
 
@@ -124,7 +105,7 @@ def correlate_deploys(
                 )
                 continue
 
-        # Didn't correlate — record as explicitly ruled out, not omitted.
+       
         reason = (
             f"touches {inferred_service}, which shows no metric anomaly"
             if inferred_service and inferred_service not in metric_anomalies
@@ -151,13 +132,11 @@ def run_correlator(
     scenario: IncidentScenario,
     include_summary: bool = True,
 ) -> tuple[EvidenceLedger, str]:
-    """Full Correlator pass over one incident scenario. Returns the
-    populated EvidenceLedger plus a plain-English LLM summary (narration
-    only, not itself citable evidence).
+    """Run the full Correlator pass. Returns the ledger plus a plain-English LLM
+    summary (narration, not citable evidence).
 
-    Set ``include_summary=False`` to skip the LLM call entirely — the
-    deterministic evidence stage then runs with no API key, which is what
-    the batch evaluator uses to score correlator coverage offline."""
+    include_summary=False skips the LLM call, so the deterministic stage runs
+    with no API key — that's what the batch evaluator uses."""
 
     ledger = EvidenceLedger(incident_id=scenario.scenario_id)
 
@@ -181,11 +160,9 @@ def run_correlator(
             )
         )
 
-    # 2. WARN/ERROR/FATAL logs (all of them, for a scenario this size — at
-    # production scale you'd window this to the anomaly timeframe). WARN is
-    # included because during an active incident a warning (e.g. "slow
-    # downstream response") is often the single most diagnostic clue; it is
-    # given lower confidence than ERROR/FATAL to reflect the weaker signal.
+    # 2. WARN/ERROR/FATAL logs. WARN is included because during an incident a
+    # warning (e.g. "slow downstream") is often the best clue — but it gets
+    # lower confidence than ERROR/FATAL.
     for log in scenario.logs:
         if log.level in ("WARN", "ERROR", "FATAL"):
             ledger.add_evidence(
@@ -203,9 +180,7 @@ def run_correlator(
     for ev in correlate_deploys(scenario.deploy_history, anomalies, known_services):
         ledger.add_evidence(ev)
 
-    # 4. LLM summary — narration only, built from already-established
-    # evidence, not a source of new claims. Skipping it lets the batch
-    # evaluator exercise the deterministic stage without an API key.
+    # 4. LLM summary — just narration over the evidence above, no new claims.
     if not include_summary:
         return ledger, "LLM summary disabled."
 

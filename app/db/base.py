@@ -1,14 +1,11 @@
-"""SQLAlchemy engine, session factory, and schema bootstrap.
+"""SQLAlchemy engine, sessions, and table setup.
 
-Persistence is opt-in via the ``DATABASE_URL`` environment variable:
+Persistence is opt-in via DATABASE_URL: unset -> engine_available() is False and
+every repository call is a no-op (local dev, eval, and tests still run); set ->
+a lazily-created engine backs the investigations table.
 
-  * unset            -> ``engine_available()`` is False; every repository call
-                        is a no-op. Local `uvicorn`, eval, and tests still run.
-  * set (compose)    -> a lazily-created engine + session factory back the
-                        ``investigations`` table.
-
-The URL is read lazily (inside ``get_engine``) rather than captured at import,
-so tests can point it at a throwaway SQLite file before the first DB call.
+The URL is read lazily (not at import) so tests can point it at a throwaway
+SQLite file first.
 """
 
 from __future__ import annotations
@@ -39,8 +36,8 @@ def _database_url() -> Optional[str]:
 
 
 def engine_available() -> bool:
-    """True when a database is configured. Guards every repository function so
-    the API degrades to 'no history' instead of crashing when Postgres is off."""
+    """True when a DB is configured. Guards every repo call so the API degrades
+    to 'no history' instead of crashing when Postgres is off."""
     return bool(_database_url())
 
 
@@ -79,12 +76,10 @@ def session_scope() -> Iterator[Session]:
 
 
 def init_db(retries: int = 5, delay: float = 2.0) -> bool:
-    """Create tables if the DB is configured and reachable. Best-effort with a
-    short retry loop: a database that is still starting up (a classic
-    docker-compose race — depends_on waits for start, not readiness) shouldn't
-    permanently disable persistence. Returns True once the schema is ready,
-    False when persistence is disabled or the DB never came up (the app keeps
-    running either way)."""
+    """Create the tables if a DB is set up and reachable. Retries a few times so
+    a DB that's still starting up (the docker-compose race) doesn't permanently
+    disable persistence. Returns True when ready, False otherwise — the app runs
+    either way."""
     if not engine_available():
         return False
     from app.db import models  # noqa: F401 — register tables on Base.metadata

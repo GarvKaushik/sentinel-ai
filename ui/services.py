@@ -1,14 +1,8 @@
-"""
-HTTP helpers for the Streamlit cockpit.
+"""HTTP helpers for the cockpit.
 
 Pure functions (no Streamlit import) so they can be tested against the live
-stack. The cockpit talks to every running service over HTTP:
-  * the dummy target  (faults, metrics source, logs, deploys)
-  * Sentinel AI        (runs the investigation via /alert)
-  * Prometheus         (live metric values + range charts)
-
-URLs default to the published localhost ports; override via env for a
-containerized UI.
+stack. The cockpit talks to the dummy target, Sentinel, and Prometheus over
+HTTP. URLs default to localhost; override via env for the containerized UI.
 """
 
 from __future__ import annotations
@@ -18,15 +12,15 @@ import time
 
 import requests
 
-# Internal URLs the cockpit calls server-side. Default to localhost for a local
-# `streamlit run`; in docker-compose these are the service names.
+# Internal URLs the cockpit calls. localhost for `streamlit run`; compose
+# service names in Docker.
 DUMMY_URL = os.environ.get("DUMMY_URL", "http://localhost:9000")
 SENTINEL_URL = os.environ.get("SENTINEL_URL", "http://localhost:8000")
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://localhost:9090")
 
-# Browser-facing URLs for the clickable links shown in the UI. Default to the
-# internal URLs so local runs need no extra config; in compose these point at
-# the published localhost ports (a browser can't resolve compose service names).
+# Links shown in the UI (opened by the browser). Default to the internal URLs;
+# in compose they're the published localhost ports (the browser can't resolve
+# compose service names).
 DUMMY_PUBLIC_URL = os.environ.get("DUMMY_PUBLIC_URL", DUMMY_URL)
 SENTINEL_PUBLIC_URL = os.environ.get("SENTINEL_PUBLIC_URL", SENTINEL_URL)
 PROMETHEUS_PUBLIC_URL = os.environ.get("PROMETHEUS_PUBLIC_URL", PROMETHEUS_URL)

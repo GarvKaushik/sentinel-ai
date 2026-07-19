@@ -1,19 +1,13 @@
-"""Batch evaluation across Sentinel AI's incident catalogue.
+"""Batch evaluation over the incident catalogue.
 
-The catalogue is the set of ``data/incidents/<id>/`` folders, each a JSON
-incident loaded via ``app.ingestion.loader.load_incident``. Keeping the
-catalogue as data (not code) makes it cheap to hand-add scenarios and mirrors
-how real incident telemetry would arrive.
+The catalogue is the data/incidents/<id>/ folders (JSON, not code — cheap to add
+scenarios and closer to how real telemetry arrives).
 
 Two entry points:
-
-* ``run_correlator_coverage`` — deterministic only, no LLM/Qdrant, no API key.
-  Confirms the rule-based correlator surfaces every ``expected_evidence_ref``
-  before any model reasons over the evidence. This is the default command.
-* ``evaluate_batch`` — runs a full, LLM-backed investigation pipeline over the
-  catalogue and scores each result with ``eval.harness``. Makes paid model
-  calls, so it is never the default; pass ``run_full_pipeline`` to it after
-  setting ``GROQ_API_KEY`` and ingesting the runbooks.
+* run_correlator_coverage — deterministic, no LLM/Qdrant/key. Checks the
+  rule-based correlator surfaces every expected ref. The default command.
+* evaluate_batch — runs the full LLM pipeline over the catalogue and scores each
+  result. Makes paid calls, so never the default.
 """
 
 from __future__ import annotations
@@ -33,10 +27,8 @@ INCIDENTS_DIR = Path(__file__).resolve().parents[1] / "data" / "incidents"
 
 
 def discover_incidents(incidents_dir: Path | None = None) -> list[IncidentScenario]:
-    """Load every incident folder under ``data/incidents`` in sorted order.
-
-    A folder counts as an incident only if it has a ``metadata.json``; this
-    skips stray files and keeps discovery deterministic."""
+    """Load every incident folder under data/incidents (sorted). A folder counts
+    only if it has a metadata.json."""
     base = incidents_dir or INCIDENTS_DIR
     scenarios: list[IncidentScenario] = []
     for folder in sorted(p for p in base.iterdir() if p.is_dir()):
@@ -69,8 +61,8 @@ class BatchSummary:
 def evaluate_correlator_coverage(scenario: IncidentScenario) -> CorrelatorCoverageResult:
     ledger, _ = run_correlator(scenario, include_summary=False)
     found_refs = {e.source_ref for e in ledger.evidence}
-    # The correlator produces metric/log/commit evidence only; doc refs are the
-    # retriever's job and are scored separately by retrieval_recall.
+    # The correlator only makes metric/log/commit evidence; doc refs are the
+    # retriever's job (scored separately by retrieval_recall).
     expected = {r for r in scenario.expected_evidence_refs if not r.startswith("doc:")}
     missing = sorted(expected - found_refs)
     recall = (len(expected) - len(missing)) / len(expected) if expected else 1.0
@@ -97,13 +89,9 @@ def evaluate_batch(
 
 
 def evaluate_retrieval_recall(scenario: IncidentScenario, client, embedder, mode: str, top_k: int = 2) -> float | None:
-    """Retrieval recall for one scenario under a single retriever mode.
-
-    Reproduces exactly the query the Root-Cause agent builds (correlator
-    evidence → runbook query) so the number reflects the real pipeline's
-    primary retrieval step, then scores it against the scenario's expected
-    ``doc:`` refs. Deterministic and LLM-free; needs a populated Qdrant.
-    Returns ``None`` when the scenario labels no expected doc refs."""
+    """Retrieval recall for one scenario under one mode. Rebuilds the exact query
+    the Root-Cause agent uses, then scores against the expected doc refs. Needs a
+    populated Qdrant. None when the scenario labels no doc refs."""
     from app.agents.root_cause import build_runbook_query
     from app.retrieval.search import search_runbooks
     from eval.harness import runbook_of
@@ -147,11 +135,9 @@ def compare_retrieval_modes(
 
 
 def run_full_pipeline(scenario: IncidentScenario) -> EvidenceLedger:
-    """Run all agents for an LLM-backed evaluation of one scenario.
-
-    Not the module default: it makes paid external model calls and loads the
-    embedding model. Pass it to ``evaluate_batch`` after setting
-    ``GROQ_API_KEY`` and ingesting the runbooks into a running Qdrant."""
+    """Run all agents for an LLM-backed eval of one scenario. Not the default —
+    makes paid calls and loads the embedder. Pass to evaluate_batch after setting
+    GROQ_API_KEY and ingesting the runbooks."""
     from app.agents.critic import run_critic
     from app.agents.postmortem import generate_postmortem
     from app.agents.recommendation import run_recommendation

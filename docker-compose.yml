@@ -21,8 +21,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      # Wait until Postgres/Redis are actually accepting connections (not just
-      # started), so the schema bootstrap on app startup can't lose the race.
+      # Wait until Postgres/Redis actually accept connections (not just started),
+      # so the schema bootstrap can't lose the race.
       postgres:
         condition: service_healthy
       redis:
