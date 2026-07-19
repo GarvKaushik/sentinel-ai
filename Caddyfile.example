@@ -1,0 +1,33 @@
+# Public entrypoint for the cockpit: real HTTPS (Let's Encrypt, auto) +
+# a per-IP rate limit (needs the caddy-ratelimit plugin — see caddy/Dockerfile).
+# Copy to `Caddyfile`, set your own hostname, then `docker compose up -d caddy`.
+#
+# h1/h2 only (HTTP/3 disabled): HTTP/3 runs over UDP 443, which needs the port
+# mapped in compose AND opened in the cloud firewall — otherwise browsers try
+# dead QUIC and fail with ERR_TOO_MANY_RETRIES.
+{
+    servers {
+        protocols h1 h2
+    }
+    order rate_limit before basic_auth
+}
+
+your-sub.duckdns.org {
+    # Throttle abusive floods per client IP. Generous enough not to break the
+    # UI (Streamlit uses one long-lived websocket, so normal use is cheap).
+    rate_limit {
+        zone perip {
+            key {remote_host}
+            events 60
+            window 1m
+        }
+    }
+
+    reverse_proxy cockpit:8501
+
+    # Optional login gate instead of / on top of the rate limit — uncomment to
+    # require a password. Hash: docker run --rm caddy caddy hash-password --plaintext 'pw'
+    # basic_auth {
+    #     garv REPLACE_WITH_BCRYPT_HASH
+    # }
+}

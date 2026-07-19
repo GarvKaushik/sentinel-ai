@@ -20,6 +20,13 @@ LOGO = str(Path(__file__).parent / "sentinel_logo.png")
 st.set_page_config(page_title="Sentinel AI — Demo Cockpit", page_icon=LOGO, layout="wide")
 st.logo(LOGO, size="large")
 
+# Hide Streamlit's hover "fullscreen/zoom" button on images and charts.
+st.markdown(
+    '<style>button[title="View fullscreen"],'
+    '[data-testid="StyledFullScreenButton"]{display:none!important;}</style>',
+    unsafe_allow_html=True,
+)
+
 _, _mid, _ = st.columns([1, 1, 1])
 _mid.image(LOGO, use_column_width=True)
 st.caption("Break the dummy service, then let Sentinel investigate the live incident — every claim cited to real evidence.")
@@ -53,7 +60,6 @@ st.subheader("Services")
 status_cols = st.columns(3)
 for (name, (up, link)), col in zip(svc.service_status().items(), status_cols):
     col.metric(name, "🟢 UP" if up else "🔴 DOWN")
-    col.caption(f"[open]({link})")
 
 st.divider()
 

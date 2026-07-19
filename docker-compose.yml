@@ -146,8 +146,30 @@ services:
       - dummy
       - prometheus
 
+  # Public HTTPS entrypoint: terminates TLS (auto Let's Encrypt cert for the
+  # DuckDNS hostname), adds basic-auth, and proxies to the cockpit. With this in
+  # front you close 8501 and only expose 80/443.
+  caddy:
+    build:
+      context: .
+      dockerfile: caddy/Dockerfile   # stock Caddy + the rate-limit plugin
+    image: sentinel-caddy
+    container_name: sentinel-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # cert storage — keep it so certs survive restarts
+      - caddy_config:/config
+    depends_on:
+      - cockpit
+
 volumes:
   qdrant_data:
   postgres_data:
   redis_data:
   prometheus_data:
+  caddy_data:
+  caddy_config:

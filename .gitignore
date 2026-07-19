@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 PROJECT_GUIDE.md
+
+# Local Caddy config (has the basic-auth password hash) — keep out of git.
+Caddyfile
