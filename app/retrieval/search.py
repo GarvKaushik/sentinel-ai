@@ -22,9 +22,9 @@ import re
 
 from qdrant_client import QdrantClient
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
 
-from app.retrieval.ingest import COLLECTION_NAME, EMBEDDING_MODEL, get_qdrant_client
+from app.retrieval.embeddings import Embedder, get_embedder
+from app.retrieval.ingest import COLLECTION_NAME, get_qdrant_client
 from app.schemas.evidence import EvidenceObject, SourceType
 
 # RRF damping constant. 60 is the value from the original Cormack et al.
@@ -51,9 +51,9 @@ def _fetch_corpus(client: QdrantClient) -> list[dict]:
     return [p.payload for p in points]
 
 
-def _dense_ranking(query: str, client: QdrantClient, model: SentenceTransformer, limit: int) -> list[tuple[str, float]]:
+def _dense_ranking(query: str, client: QdrantClient, embedder: Embedder, limit: int) -> list[tuple[str, float]]:
     """Dense hits as (source_ref, cosine_score) in descending rank order."""
-    query_vector = model.encode(query).tolist()
+    query_vector = embedder.embed_query(query)
     hits = client.search(collection_name=COLLECTION_NAME, query_vector=query_vector, limit=limit)
     return [(h.payload["source_ref"], float(h.score)) for h in hits]
 
@@ -83,7 +83,7 @@ def _reciprocal_rank_fusion(ranked_lists: list[list[str]], k: int = RRF_K) -> di
 def search_runbooks(
     query: str,
     client: QdrantClient,
-    model: SentenceTransformer,
+    embedder: Embedder,
     top_k: int = 3,
     produced_by: str = "retriever_agent",
     mode: str = "hybrid",
@@ -102,13 +102,13 @@ def search_runbooks(
     payload_by_ref = {c["source_ref"]: c for c in corpus}
 
     if mode == "dense":
-        ranked = _dense_ranking(query, client, model, limit=top_k)
+        ranked = _dense_ranking(query, client, embedder, limit=top_k)
         chosen = [(ref, score) for ref, score in ranked]
     elif mode == "bm25":
         bm25_refs = _bm25_ranking(query, corpus)[:top_k]
         chosen = [(ref, 1.0) for ref in bm25_refs]
     elif mode == "hybrid":
-        dense_refs = [ref for ref, _ in _dense_ranking(query, client, model, limit=len(corpus))]
+        dense_refs = [ref for ref, _ in _dense_ranking(query, client, embedder, limit=len(corpus))]
         bm25_refs = _bm25_ranking(query, corpus)
         fused = _reciprocal_rank_fusion([dense_refs, bm25_refs])
         ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
@@ -141,10 +141,10 @@ if __name__ == "__main__":
     from app.retrieval.ingest import ingest_runbooks
 
     client = get_qdrant_client(in_memory=True)
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    embedder = get_embedder()
 
     runbooks_dir = Path(__file__).resolve().parents[2] / "data" / "runbooks"
-    ingest_runbooks(runbooks_dir, client, model)
+    ingest_runbooks(runbooks_dir, client, embedder)
 
     test_queries = [
         "error rate spiked right after a deploy, how do I find the guilty commit",
@@ -155,5 +155,5 @@ if __name__ == "__main__":
     for q in test_queries:
         print(f"\nQUERY: {q}")
         for mode in ("dense", "bm25", "hybrid"):
-            refs = [r.source_ref for r in search_runbooks(q, client, model, top_k=2, mode=mode)]
+            refs = [r.source_ref for r in search_runbooks(q, client, embedder, top_k=2, mode=mode)]
             print(f"  {mode:6s}: {refs}")

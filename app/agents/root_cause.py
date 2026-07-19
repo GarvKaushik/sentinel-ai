@@ -29,7 +29,7 @@ from app.schemas.evidence import EvidenceLedger, Hypothesis
 from app.schemas.scenario import IncidentScenario
 from app.llm.client import chat
 from app.agents.correlator import run_correlator
-from app.retrieval.ingest import get_qdrant_client, EMBEDDING_MODEL
+from app.retrieval.ingest import get_qdrant_client
 from app.retrieval.search import search_runbooks
 
 ROOT_CAUSE_MODEL = "openai/gpt-oss-120b"
@@ -131,13 +131,13 @@ def run_root_cause_investigation(scenario: IncidentScenario, use_in_memory_qdran
     print(f"Correlator summary: {correlator_summary}\n")
 
     # 2. Retriever pass, grounded by what the Correlator found
-    from sentence_transformers import SentenceTransformer
+    from app.retrieval.embeddings import get_embedder
     client = get_qdrant_client(in_memory=use_in_memory_qdrant)
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    embedder = get_embedder()
 
     query = build_runbook_query(ledger)
     print(f"Runbook query (built from Correlator evidence): {query!r}\n")
-    runbook_evidence = search_runbooks(query, client, model, top_k=2)
+    runbook_evidence = search_runbooks(query, client, embedder, top_k=2)
     for e in runbook_evidence:
         ledger.add_evidence(e)
 

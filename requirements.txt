@@ -9,7 +9,9 @@ pydantic==2.9.2
 python-dotenv==1.0.1
 # --- Added for runbooks + Qdrant ingestion step ---
 qdrant-client==1.11.1
-sentence-transformers==3.1.1
+# NOTE: the local embedding backend (sentence-transformers + torch) is NOT here.
+# It lives in requirements-local.txt so the deploy image stays light and uses the
+# hosted Jina backend (EMBEDDING_BACKEND=jina). See app/retrieval/embeddings.py.
 
 
 # --- Added for Correlator agent (Groq LLM calls, OpenAI-compatible) ---

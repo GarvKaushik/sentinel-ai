@@ -96,7 +96,7 @@ def evaluate_batch(
     return [evaluate_investigation(s, pipeline(s)) for s in (scenarios or discover_incidents())]
 
 
-def evaluate_retrieval_recall(scenario: IncidentScenario, client, model, mode: str, top_k: int = 2) -> float | None:
+def evaluate_retrieval_recall(scenario: IncidentScenario, client, embedder, mode: str, top_k: int = 2) -> float | None:
     """Retrieval recall for one scenario under a single retriever mode.
 
     Reproduces exactly the query the Root-Cause agent builds (correlator
@@ -114,7 +114,7 @@ def evaluate_retrieval_recall(scenario: IncidentScenario, client, model, mode: s
 
     ledger, _ = run_correlator(scenario, include_summary=False)
     query = build_runbook_query(ledger)
-    retrieved = {runbook_of(h.source_ref) for h in search_runbooks(query, client, model, top_k=top_k, mode=mode)}
+    retrieved = {runbook_of(h.source_ref) for h in search_runbooks(query, client, embedder, top_k=top_k, mode=mode)}
     return len(expected_runbooks & retrieved) / len(expected_runbooks)
 
 
@@ -125,17 +125,17 @@ def compare_retrieval_modes(
 ) -> dict[str, dict]:
     """Score retrieval recall for every scenario under each mode. Returns
     ``{mode: {"per_scenario": {id: recall}, "mean": float}}``."""
-    from sentence_transformers import SentenceTransformer
-    from app.retrieval.ingest import EMBEDDING_MODEL, get_qdrant_client
+    from app.retrieval.embeddings import get_embedder
+    from app.retrieval.ingest import get_qdrant_client
 
     scenarios = scenarios or discover_incidents()
     client = get_qdrant_client(in_memory=False)
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    embedder = get_embedder()
 
     out: dict[str, dict] = {}
     for mode in modes:
         per_scenario = {
-            s.scenario_id: evaluate_retrieval_recall(s, client, model, mode=mode, top_k=top_k)
+            s.scenario_id: evaluate_retrieval_recall(s, client, embedder, mode=mode, top_k=top_k)
             for s in scenarios
         }
         scored = [v for v in per_scenario.values() if v is not None]

@@ -1,10 +1,10 @@
 """
 Ingest runbook chunks into Qdrant.
 
-Uses a small, fast sentence-transformers model (all-MiniLM-L6-v2, 384-dim)
-— plenty good enough for runbook-scale retrieval and fast to run locally
-without a GPU. Swap for a larger model later only if retrieval quality
-on your eval set actually demands it.
+Embeddings come from the pluggable backend in ``app.retrieval.embeddings``
+(local sentence-transformers by default, or the Jina API when
+``EMBEDDING_BACKEND=jina``). The Qdrant collection is (re)created to match the
+active backend's vector size, so switching backends is safe.
 
 Run this as a script whenever you add/change runbooks:
     python -m app.retrieval.ingest
@@ -16,13 +16,11 @@ from pathlib import Path
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
-from sentence_transformers import SentenceTransformer
 
 from app.retrieval.chunking import chunk_all_runbooks
+from app.retrieval.embeddings import Embedder, get_embedder
 
 COLLECTION_NAME = "runbooks"
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-EMBEDDING_DIM = 384
 
 # Where Qdrant lives. Defaults to the local docker-compose port; inside the
 # app container this is set to the compose service URL (http://qdrant:6333).
@@ -41,28 +39,35 @@ def get_qdrant_client(in_memory: bool = False) -> QdrantClient:
     return QdrantClient(url=os.environ.get("QDRANT_URL", DEFAULT_QDRANT_URL))
 
 
-def ensure_collection(client: QdrantClient) -> None:
-    existing = [c.name for c in client.get_collections().collections]
-    if COLLECTION_NAME not in existing:
-        client.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
-        )
+def ensure_collection(client: QdrantClient, dim: int) -> None:
+    """Create the collection at the given vector size. If it already exists with
+    a different size (e.g. after switching embedding backends), drop and rebuild
+    it so ingest can't fail on a dimension mismatch."""
+    existing = {c.name for c in client.get_collections().collections}
+    if COLLECTION_NAME in existing:
+        current = client.get_collection(COLLECTION_NAME).config.params.vectors.size
+        if current == dim:
+            return
+        client.delete_collection(COLLECTION_NAME)
+    client.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+    )
 
 
-def ingest_runbooks(runbooks_dir: Path, client: QdrantClient, model: SentenceTransformer) -> int:
+def ingest_runbooks(runbooks_dir: Path, client: QdrantClient, embedder: Embedder) -> int:
     """Chunk, embed, and upsert all runbooks. Returns number of chunks ingested."""
     chunks = chunk_all_runbooks(runbooks_dir)
     if not chunks:
         return 0
 
     texts = [c.text for c in chunks]
-    embeddings = model.encode(texts, show_progress_bar=False)
+    vectors = embedder.embed_passages(texts)
 
     points = [
         PointStruct(
             id=i,
-            vector=embeddings[i].tolist(),
+            vector=vectors[i],
             payload={
                 "doc_id": chunks[i].doc_id,
                 "section_slug": chunks[i].section_slug,
@@ -74,7 +79,7 @@ def ingest_runbooks(runbooks_dir: Path, client: QdrantClient, model: SentenceTra
         for i in range(len(chunks))
     ]
 
-    ensure_collection(client)
+    ensure_collection(client, embedder.dim)
     client.upsert(collection_name=COLLECTION_NAME, points=points)
     return len(points)
 
@@ -82,7 +87,7 @@ def ingest_runbooks(runbooks_dir: Path, client: QdrantClient, model: SentenceTra
 if __name__ == "__main__":
     runbooks_dir = Path(__file__).resolve().parents[2] / "data" / "runbooks"
     client = get_qdrant_client(in_memory=False)  # expects docker compose up -d already run
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    embedder = get_embedder()
 
-    count = ingest_runbooks(runbooks_dir, client, model)
+    count = ingest_runbooks(runbooks_dir, client, embedder)
     print(f"Ingested {count} chunks from {runbooks_dir} into Qdrant collection '{COLLECTION_NAME}'")
