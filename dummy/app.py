@@ -105,11 +105,13 @@ def simulate_tick() -> None:
     p = profile_for(fault)
     svc = SERVICE
 
-    # Requests this tick, with the fault's error fraction and status code.
+    # Requests this tick. Errors are drawn per-request (probabilistic) rather
+    # than a rounded count, so a low baseline error_rate still yields a small
+    # non-zero rate over a scrape window instead of quantizing to exactly 0 —
+    # which the correlator's "value >= 3x baseline" rule needs to fire.
     n = max(1, int(BASE_RPS * p["rps_multiplier"]))
-    errors = int(round(n * p["error_rate"]))
-    for i in range(n):
-        status = p["error_status"] if i < errors else 200
+    for _ in range(n):
+        status = p["error_status"] if random.random() < p["error_rate"] else 200
         REQS.labels(svc, str(status)).inc()
         LAT.labels(svc).observe(_sample_latency_seconds(p["latency_p95_ms"]))
 

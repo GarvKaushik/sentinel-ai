@@ -19,10 +19,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 from app.schemas.evidence import EvidenceLedger, EvidenceObject, SourceType
 from app.schemas.scenario import IncidentScenario
 from app.ingestion.loader import load_incident
+from app.ingestion.adapter import build_incident_from_alert
 from app.pipeline import run_investigation
 from app.agents.postmortem import render_markdown
 
@@ -67,6 +69,27 @@ def investigate(scenario: IncidentScenario):
     """Run a full investigation on an incident supplied in the request body."""
     ledger = run_investigation(scenario)
     return _ledger_response(ledger)
+
+
+class AlertTrigger(BaseModel):
+    service: str
+    metric: str = "error_rate_pct"
+    window_minutes: int = 10
+
+
+@app.post("/alert")
+def investigate_alert(alert: AlertTrigger):
+    """Alert-driven investigation of a LIVE incident. Builds an IncidentScenario
+    from real telemetry (Prometheus + the target's logs/deploys) via the
+    ingestion adapter, then runs the full pipeline. This is the production-shaped
+    entry point an Alertmanager webhook would call."""
+    scenario = build_incident_from_alert(
+        service=alert.service, metric=alert.metric, window_minutes=alert.window_minutes,
+    )
+    ledger = run_investigation(scenario)
+    resp = _ledger_response(ledger)
+    resp["source"] = {"service": alert.service, "metric": alert.metric, "metric_points": len(scenario.metrics)}
+    return resp
 
 
 @app.post("/investigate/{incident_id}")

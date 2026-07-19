@@ -181,16 +181,19 @@ def run_correlator(
             )
         )
 
-    # 2. Error/fatal logs (all of them, for a scenario this size — at
-    # production scale you'd window this to the anomaly timeframe)
+    # 2. WARN/ERROR/FATAL logs (all of them, for a scenario this size — at
+    # production scale you'd window this to the anomaly timeframe). WARN is
+    # included because during an active incident a warning (e.g. "slow
+    # downstream response") is often the single most diagnostic clue; it is
+    # given lower confidence than ERROR/FATAL to reflect the weaker signal.
     for log in scenario.logs:
-        if log.level in ("ERROR", "FATAL"):
+        if log.level in ("WARN", "ERROR", "FATAL"):
             ledger.add_evidence(
                 EvidenceObject(
                     claim=f"{log.level} in {log.service}: {log.message}",
                     source_type=SourceType.LOG,
                     source_ref=log.line_id,
-                    confidence=0.9,
+                    confidence=0.6 if log.level == "WARN" else 0.9,
                     timestamp=_parse_ts(log.timestamp),
                     produced_by="correlator_agent",
                 )

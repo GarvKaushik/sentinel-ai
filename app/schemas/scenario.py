@@ -10,7 +10,7 @@ did the pipeline's top hypothesis match `injected_root_cause`.
 """
 
 from __future__ import annotations
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -46,18 +46,23 @@ class IncidentScenario(BaseModel):
     title: str
     services_affected: list[str]
 
-    # The ground truth — never shown to the pipeline, only used for scoring
-    injected_root_cause: str
-    root_cause_category: Literal[
-        "bad_deploy",
-        "resource_exhaustion",
-        "dependency_timeout",
-        "config_drift",
-        "db_connection_pool",
-        "traffic_spike_no_bug",
-        "partial_rollback",
-        "red_herring",
-    ]
+    # The ground truth — never shown to the pipeline, only used by the eval
+    # harness for scoring. OPTIONAL: real incidents (built by the ingestion
+    # adapter from live telemetry) have no label, so these are None there.
+    # The investigation pipeline never reads them; only eval fixtures set them.
+    injected_root_cause: Optional[str] = None
+    root_cause_category: Optional[
+        Literal[
+            "bad_deploy",
+            "resource_exhaustion",
+            "dependency_timeout",
+            "config_drift",
+            "db_connection_pool",
+            "traffic_spike_no_bug",
+            "partial_rollback",
+            "red_herring",
+        ]
+    ] = None
 
     # The synthetic data itself
     metrics: list[MetricPoint]
