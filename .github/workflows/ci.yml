@@ -1,0 +1,71 @@
+name: CI
+
+# Lean CI for a 0-cost portfolio project:
+#   * lint   — ruff, real-error rules only (no style nits, so it stays green)
+#   * test   — the full offline test suite (no GROQ_API_KEY, no running services)
+#   * docker — validate the compose file + build the light images (dummy, cockpit)
+#
+# The heavy app image (CPU torch + a baked embedding model) is deliberately NOT
+# built on every push: it is slow and would burn CI minutes for little signal.
+# There is no deploy (CD) stage — this project is presented via recordings, not
+# a live cloud URL, so there is no deploy target by design.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: CI only needs to read the repo.
+permissions:
+  contents: read
+
+# Cancel an in-flight run when a new commit is pushed to the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff
+      - name: Ruff (pyflakes real-error rules)
+        run: ruff check app eval ui dummy --select E9,F
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      # CPU-only torch first, so the transitive dep from sentence-transformers
+      # does not pull the multi-GB CUDA wheel (same trick as the Dockerfile).
+      - name: Install CPU-only torch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+      # No GROQ_API_KEY and no services on purpose — every test here is offline
+      # (SQLite for persistence, Celery eager mode, deterministic eval fixtures).
+      - name: Run offline test suite
+        run: python -m pytest app/db/test_repository.py app/test_tasks.py eval/test_harness.py eval/test_batch.py -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose config
+        env:
+          GROQ_API_KEY: ci-placeholder # only satisfies the ${VAR:?} interpolation
+        run: docker compose config -q
+      - name: Build light images (dummy + cockpit)
+        run: |
+          docker build -f dummy/Dockerfile -t sentinel-dummy .
+          docker build -f ui/Dockerfile -t sentinel-cockpit .

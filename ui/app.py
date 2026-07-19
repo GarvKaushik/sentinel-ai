@@ -34,6 +34,25 @@ def _fmt(v, suffix=""):
     return "—" if v is None else f"{v:,.2f}{suffix}"
 
 
+def render_result(hypotheses, recommendation, postmortem_md):
+    """Render a finished investigation (shared by the async + sync code paths)."""
+    st.markdown("#### Ranked hypotheses")
+    for h in hypotheses or []:
+        badge = "✅" if h["status"] == "survived_critique" else "⬇️"
+        st.markdown(f"{badge} **{h['status']}** · confidence `{h['confidence']:.2f}`  \n{h['description']}")
+
+    if recommendation:
+        label = "Recommendation" + (" — escalated to human" if recommendation.get("is_fallback_escalation") else "")
+        st.markdown(f"#### {label}")
+        st.write(recommendation.get("summary", ""))
+        for step in recommendation.get("detailed_steps") or []:
+            st.markdown(f"- {step}")
+
+    if postmortem_md:
+        with st.expander("Full cited postmortem"):
+            st.markdown(postmortem_md)
+
+
 # ---------------------------------------------------------------- services
 st.subheader("Services")
 status_cols = st.columns(3)
@@ -115,28 +134,104 @@ metric = i2.selectbox(
 window = i3.slider("Window (min)", 3, 15, 8)
 
 if st.button("🔍 Investigate live incident", type="primary"):
-    with st.spinner("Investigating — building the incident from live telemetry and running the agents (~20s)…"):
-        try:
-            res = svc.run_alert(service, metric, window)
-        except requests.RequestException as e:
-            st.error(f"Investigation failed — is the Sentinel API running? ({e})")
+    try:
+        with st.spinner("Enqueuing the alert…"):
+            submit = svc.run_alert(service, metric, window)
+    except requests.RequestException as e:
+        st.error(f"Alert failed — is the Sentinel API running? ({e})")
+        st.stop()
+
+    # Async path: /alert returned a job handle → a Celery worker runs it and we
+    # poll Postgres for the result.
+    if submit.get("status") == "queued" and submit.get("investigation_id") is not None:
+        inv_id = submit["investigation_id"]
+        job = str(submit.get("job_id") or "")[:8]
+        st.info(f"Queued as investigation **#{inv_id}** (job `{job}…`) — a Celery worker is running it off the request path.")
+        with st.spinner("Worker investigating — building the incident from live telemetry and running the agents (~20s)…"):
+            try:
+                record = svc.poll_investigation(inv_id)
+            except requests.RequestException as e:
+                st.error(f"Lost contact while polling: {e}")
+                st.stop()
+
+        if record.get("status") == "failed":
+            st.error(f"Investigation failed: {record.get('error')}")
+            st.stop()
+        if record.get("status") != "done":
+            st.warning(f"Still `{record.get('status')}` after the wait — is the worker up? (`docker compose ps worker`). Re-check it in history below.")
             st.stop()
 
-    src = res.get("source", {})
-    st.success(f"Investigated **{src.get('service', service)}** on `{src.get('metric', metric)}` — {src.get('metric_points', '?')} metric points, {res['evidence_count']} evidence items")
+        ledger = record.get("ledger") or {}
+        hypotheses = ledger.get("hypotheses", [])
+        recommendation = ledger.get("recommendation")
+        postmortem_md = record.get("postmortem_markdown")
+        st.success(f"Investigated **{record.get('service', service)}** on `{record.get('metric', metric)}` — {record.get('evidence_count', '?')} evidence items (investigation #{inv_id})")
+    else:
+        # Synchronous fallback shape (no queue configured).
+        src = submit.get("source", {})
+        hypotheses = submit.get("hypotheses", [])
+        recommendation = submit.get("recommendation")
+        postmortem_md = submit.get("postmortem_markdown")
+        st.success(f"Investigated **{src.get('service', service)}** on `{src.get('metric', metric)}` — {src.get('metric_points', '?')} metric points, {submit.get('evidence_count', '?')} evidence items")
 
-    st.markdown("#### Ranked hypotheses")
-    for h in res["hypotheses"]:
-        badge = "✅" if h["status"] == "survived_critique" else "⬇️"
-        st.markdown(f"{badge} **{h['status']}** · confidence `{h['confidence']:.2f}`  \n{h['description']}")
+    render_result(hypotheses, recommendation, postmortem_md)
 
-    rec = res["recommendation"]
-    label = "Recommendation" + (" — escalated to human" if rec["is_fallback_escalation"] else "")
-    st.markdown(f"#### {label}")
-    st.write(rec["summary"])
-    if rec.get("detailed_steps"):
-        for step in rec["detailed_steps"]:
-            st.markdown(f"- {step}")
+st.divider()
 
-    with st.expander("Full cited postmortem"):
-        st.markdown(res["postmortem_markdown"])
+# ---------------------------------------------------------------- history
+st.subheader("Investigation history")
+st.caption("Every run is persisted to Postgres — most recent first. **Click a row** to open the full cited investigation.")
+try:
+    rows = svc.list_investigations(limit=15)
+    if rows:
+        table = [
+            {
+                "id": r["id"],
+                "when": (r.get("created_at") or "")[:19].replace("T", " "),
+                "trigger": r.get("trigger"),
+                "service": r.get("service"),
+                "status": r.get("status"),
+                "root cause": (r.get("top_root_cause") or "")[:70],
+                "conf": r.get("confidence"),
+            }
+            for r in rows
+        ]
+        event = st.dataframe(
+            table,
+            use_container_width=True,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
+        )
+
+        selected = getattr(getattr(event, "selection", None), "rows", []) or []
+        if selected:
+            chosen = rows[selected[0]]
+            inv_id = chosen["id"]
+            try:
+                detail = svc.get_investigation(inv_id)
+            except requests.RequestException as e:
+                st.error(f"Could not load investigation #{inv_id}: {e}")
+                detail = None
+
+            if detail:
+                st.markdown(
+                    f"### Investigation #{inv_id} — "
+                    f"{detail.get('service') or '—'} on `{detail.get('metric') or '—'}` "
+                    f"· status `{detail.get('status')}`"
+                )
+                if detail.get("status") == "failed":
+                    st.error(detail.get("error") or "Investigation failed.")
+                elif detail.get("status") != "done":
+                    st.info(f"This investigation is still `{detail.get('status')}` — check back shortly.")
+                else:
+                    ledger = detail.get("ledger") or {}
+                    render_result(
+                        ledger.get("hypotheses", []),
+                        ledger.get("recommendation"),
+                        detail.get("postmortem_markdown"),
+                    )
+    else:
+        st.caption("No investigations recorded yet — run one above.")
+except requests.RequestException:
+    st.info("History unavailable — Sentinel API not reachable.")

@@ -13,11 +13,12 @@ structured evidence; retrieves relevant runbook guidance; asks LLM agents to
 propose and falsify root-cause hypotheses; and produces a cited remediation
 recommendation.
 
-It is **not production-ready**. It has one synthetic scenario, no evaluation
-harness, no async orchestration, no persistent application storage, no
-authentication, and no endpoint that runs a full investigation. Qdrant,
-PostgreSQL, and Redis are available in Docker Compose, but only Qdrant is
-currently used by application code.
+It is a portfolio prototype, not a hardened product (no authentication, no
+multi-tenancy). But the platform pieces are now wired end to end: a full
+investigation runs over HTTP, results are **persisted to PostgreSQL**, and the
+live `/alert` path runs **asynchronously on a Redis + Celery queue** with a
+worker process. All four backing services in Docker Compose — Qdrant, Postgres,
+Redis, and Prometheus — are used by application code.
 
 The key design principle is:
 
@@ -63,7 +64,11 @@ The FastAPI service exposes the workflow above via `POST /investigate`
 
 | Path | What it contains | Current role |
 | --- | --- | --- |
-| `app/main.py` | FastAPI application | `GET /health` and `GET /smoke-test/evidence-ledger` only. |
+| `app/main.py` | FastAPI application | Health, incident catalogue, `/investigate*`, async `/alert`, and `/investigations` history routes; bootstraps the DB schema on startup. |
+| `app/pipeline.py` | Investigation orchestrator | `run_investigation(scenario)` — the single place the agent chain + citation guarantees live. |
+| `app/tasks.py` | Celery app + async task | `run_investigation_task` runs the pipeline on the worker off the request path; Redis is the broker. |
+| `app/db/` | Persistence (SQLAlchemy) | `base.py` engine/session (opt-in via `DATABASE_URL`), `models.py` `Investigation` table, `repository.py` save/lifecycle/read. No-op when no DB is configured. |
+| `app/ingestion/adapter.py` | Live-telemetry ingestion | Builds an `IncidentScenario` from Prometheus + the target's logs/deploys for `/alert`. |
 | `app/schemas/evidence.py` | Evidence, hypothesis, recommendation, ledger models | Core provenance contract. |
 | `app/schemas/scenario.py` | Synthetic incident input models | Scenario ground truth and source-data shapes. |
 | `app/ingestion/loader.py` | JSON incident directory loader | Converts a `data/incidents/<id>/` folder to `IncidentScenario`. Backs the scenario catalogue. |
@@ -82,15 +87,18 @@ The FastAPI service exposes the workflow above via `POST /investigate`
 | `data/runbooks/` | Three Markdown runbooks | Initial RAG corpus. |
 | `data/incidents/incident_001..007/` | JSON incident catalogue | 7 scenarios (one per failure category); the scenario library, loaded by `eval/batch.py`. |
 | `data/scenarios/scenario_001_bad_deploy.py` | Python scenario fixture | Same incident as `incident_001`; imported by agent `__main__` smoke tests and `eval/test_harness.py`. |
-| `docker-compose.yml` | Qdrant, PostgreSQL, Redis | Local infrastructure; Postgres/Redis unused. |
+| `app/db/test_repository.py`, `app/test_tasks.py` | Persistence + task tests | Run against SQLite / Celery eager mode — no Docker needed. |
+| `ui/` | Streamlit demo cockpit | Inject faults, watch live telemetry, run investigations (async poll), browse persisted history. |
+| `dummy/` | Fault-injecting target service | FastAPI app emitting one of 12 manufactured faults; Prometheus scrapes it. |
+| `docker-compose.yml` | app, worker, cockpit, dummy, Qdrant, Postgres, Redis, Prometheus | The full one-command stack; all services are used. |
 | `requirements.txt` | Current Python packages | Runtime dependencies. |
 | `FUTURE_DEPENDENCIES.md` | Deferred packages and rationale | Roadmap, not installed functionality. |
 | `README.md` | Original early project overview | Partly stale; use this guide for current context. |
 
 `eval/` scores single investigations (`eval/harness.py`) and the whole
-catalogue (`eval/batch.py`), over a 7-scenario JSON incident library. There is
-no dashboard, database model, queue worker, or real external data integration
-in the current tree.
+catalogue (`eval/batch.py`), over a 7-scenario JSON incident library. A Streamlit
+cockpit (`ui/`), a Postgres-backed investigation history, and a Redis/Celery
+worker are all present in the current tree.
 
 ## 4. Core data contracts
 
@@ -351,13 +359,14 @@ they appear there.
 
 | Service | Port | Used today |
 | --- | --- | --- |
-| app (this repo's `Dockerfile`) | 8000 | Yes. The Sentinel FastAPI service; on boot it waits for Qdrant, ingests runbooks, then serves. |
-| cockpit (`ui/Dockerfile`) | 8501 | Yes. The Streamlit demo cockpit — fault injection, live telemetry, one-click investigation. |
+| app (this repo's `Dockerfile`) | 8000 | Yes. The Sentinel FastAPI service; on boot it waits for Qdrant, ingests runbooks, creates the DB schema, then serves. |
+| worker (same image as app) | — | Yes. Celery worker; consumes jobs from Redis and runs the pipeline off the request path. |
+| cockpit (`ui/Dockerfile`) | 8501 | Yes. The Streamlit demo cockpit — fault injection, live telemetry, async investigation, persisted history. |
 | dummy (`dummy/Dockerfile`) | 9000 | Yes. The target service Sentinel observes; exposes `/metrics`, `/logs`, `/deploys`, fault injection. |
 | Prometheus | 9090 | Yes. Scrapes the dummy; Sentinel's adapter queries it. |
 | Qdrant | 6333 REST, 6334 gRPC | Yes, for persistent runbook retrieval. |
-| PostgreSQL 16 | 5432 | No. Reserved for future incident/report storage. |
-| Redis 7 | 6379 | No. Reserved for future task queue/cache. |
+| PostgreSQL 16 | 5432 | Yes. Stores every investigation (`investigations` table); backs the history view. |
+| Redis 7 | 6379 | Yes. Celery broker (db 0) + result backend (db 1) for async `/alert`. |
 
 The whole demo starts with **one command** — `docker compose up --build` — and
 opens at `http://localhost:8501` (the cockpit). Services reach each other by
@@ -463,17 +472,19 @@ been populated by `python -m app.retrieval.ingest`.
 | --- | --- |
 | `GET /health` | `{"status": "ok"}` |
 | `GET /incidents` | The built-in incident catalogue ids. |
-| `POST /alert` | LIVE investigation: `{service, metric, window_minutes}` → the ingestion adapter builds an incident from real Prometheus + the target's logs/deploys, then runs the pipeline. Alertmanager-shaped entry point. |
-| `POST /investigate` | Run a full investigation on an `IncidentScenario` in the request body. |
-| `POST /investigate/{incident_id}` | Run a full investigation on a catalogue incident (e.g. `incident_001`). |
+| `POST /alert` | LIVE investigation: `{service, metric, window_minutes}` → **enqueues** the job on Redis and returns `{investigation_id, job_id, status: "queued", poll}` immediately; a Celery worker builds the incident from real Prometheus + logs/deploys and runs the pipeline. Alertmanager-shaped entry point. Falls back to synchronous when no DB/queue is configured. |
+| `GET /investigations` | Recent investigation history (most recent first) from Postgres; `enabled` flag distinguishes "no history" from "no database". |
+| `GET /investigations/{id}` | Full stored record: status, ledger, rendered postmortem, error. Also the **poll target** for async `/alert` jobs. |
+| `POST /investigate` | Run a full investigation on an `IncidentScenario` in the request body (synchronous); persisted. |
+| `POST /investigate/{incident_id}` | Run a full investigation on a catalogue incident (e.g. `incident_001`) (synchronous); persisted. |
 | `GET /smoke-test/evidence-ledger` | Demonstrates valid and invalid citation resolution using hard-coded evidence. |
 
-The `/investigate` routes call `app.pipeline.run_investigation` and return the
-completed ledger — hypotheses, recommendation, structured postmortem, and a
-rendered `postmortem_markdown`. They run the LLM-backed pipeline **synchronously**
-(tens of seconds per call); an async job/poll API over Redis/Celery is the next
-step. There is still no persistence — results are returned, not stored.
-`app/api/` remains empty; routes live in `app/main.py`.
+The `/investigate*` routes call `app.pipeline.run_investigation` synchronously and
+return the completed ledger — hypotheses, recommendation, structured postmortem,
+and a rendered `postmortem_markdown` — plus an `investigation_id`. `/alert` runs
+the same pipeline asynchronously via `app/tasks.py`. Every run is written to the
+`investigations` table (best-effort; the API still serves if Postgres is down).
+All routes live in `app/main.py`.
 
 ## 11. Reliability and safety rules for future changes
 
@@ -516,6 +527,15 @@ step. There is still no persistence — results are returned, not stored.
   (`eval.harness.runbook_of`): dense 1.00, hybrid 1.00, BM25 alone 0.86. Hybrid
   ties dense but is more robust than either component (see the Retriever
   section). A cross-encoder reranker is the remaining hybrid sub-item.
+- **Persistence (`app/db/`)**: every investigation is stored in a Postgres
+  `investigations` table (SQLAlchemy; JSON ledger + flat summary columns).
+  `GET /investigations` and `GET /investigations/{id}` expose the history; the
+  cockpit shows it. Opt-in via `DATABASE_URL`, best-effort so the API never
+  crashes when the DB is down. Verified on SQLite (`app/db/test_repository.py`).
+- **Async execution (`app/tasks.py`)**: `/alert` enqueues on Redis and returns a
+  job handle immediately; a Celery `worker` container runs the pipeline off the
+  request path and writes the result to Postgres, which the caller polls.
+  Verified in Celery eager mode (`app/test_tasks.py`).
 
 Note on ref partitioning: `expected_evidence_refs` now mixes investigative
 refs (metric/log/commit) and `doc:` refs. Correlator coverage and root-cause
@@ -539,12 +559,12 @@ don't produce them); retrieval recall scores only the `doc:` refs.
    are more runbooks (close the config-drift gap) and multi-section / runbook-
    level relevance labels.
 3. Real incident API and orchestration: incident submission, ledger/report
-   retrieval, retries, timeouts, status tracking, and durable storage.
-4. PostgreSQL models and migrations for investigations and reports; Redis/Celery
-   or equivalent for asynchronous workloads.
-5. Tracing, prompt versioning, cost/latency telemetry, and a small dashboard
+   retrieval, retries, timeouts, and status tracking are in place (async `/alert`
+   + `/investigations`). Remaining: Alembic migrations (schema is currently
+   `create_all` on startup) and richer job-status surfacing.
+4. Tracing, prompt versioning, cost/latency telemetry, and a small dashboard
    showing the evidence and critic trace.
-6. Read-only real integration, starting with GitHub commit metadata for a
+5. Read-only real integration, starting with GitHub commit metadata for a
    repository the user controls. Keep incident telemetry synthetic until the
    system is evaluated and access controls exist.
 

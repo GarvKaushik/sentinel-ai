@@ -18,7 +18,7 @@ than trusting the LLM's arithmetic.
 from __future__ import annotations
 import json
 
-from app.schemas.evidence import EvidenceLedger, Hypothesis
+from app.schemas.evidence import EvidenceLedger
 from app.llm.client import chat
 
 CRITIC_MODEL = "openai/gpt-oss-120b"
