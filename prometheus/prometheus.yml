@@ -1,0 +1,12 @@
+# Prometheus scrape config for the Sentinel AI demo stack.
+# Scrapes the dummy target service; Sentinel later queries this Prometheus
+# (PromQL) to build an incident's metric evidence.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: dummy
+    static_configs:
+      - targets: ["dummy:9000"]   # compose service name; /metrics is the default path

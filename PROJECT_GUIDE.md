@@ -457,6 +457,7 @@ been populated by `python -m app.retrieval.ingest`.
 | --- | --- |
 | `GET /health` | `{"status": "ok"}` |
 | `GET /incidents` | The built-in incident catalogue ids. |
+| `POST /alert` | LIVE investigation: `{service, metric, window_minutes}` → the ingestion adapter builds an incident from real Prometheus + the target's logs/deploys, then runs the pipeline. Alertmanager-shaped entry point. |
 | `POST /investigate` | Run a full investigation on an `IncidentScenario` in the request body. |
 | `POST /investigate/{incident_id}` | Run a full investigation on a catalogue incident (e.g. `incident_001`). |
 | `GET /smoke-test/evidence-ledger` | Demonstrates valid and invalid citation resolution using hard-coded evidence. |

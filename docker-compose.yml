@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   app:
     build: .
@@ -43,7 +41,28 @@ services:
     volumes:
       - redis_data:/data
 
+  # --- Demo stack: the target service Sentinel observes, and its Prometheus ---
+  dummy:
+    build:
+      context: .
+      dockerfile: dummy/Dockerfile
+    container_name: sentinel-dummy
+    ports:
+      - "9000:9000"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sentinel-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - dummy
+
 volumes:
   qdrant_data:
   postgres_data:
   redis_data:
+  prometheus_data:
