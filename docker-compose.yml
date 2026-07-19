@@ -39,9 +39,10 @@ services:
   # results to Postgres. `entrypoint` bypasses docker-entrypoint.sh (which would
   # otherwise start uvicorn); the app container handles Qdrant ingestion.
   worker:
-    image: sentinel-app
+    build: .                       # same image as app; build here too so a
+    image: sentinel-app            # one-shot `up --build` never tries to pull it
     container_name: sentinel-worker
-    entrypoint: ["celery", "-A", "app.tasks:celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    entrypoint: ["celery", "-A", "app.tasks:celery_app", "worker", "--loglevel=info", "--concurrency=1"]
     environment:
       QDRANT_URL: http://qdrant:6333
       PROMETHEUS_URL: http://prometheus:9090
