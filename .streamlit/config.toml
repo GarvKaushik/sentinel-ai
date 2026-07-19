@@ -1,0 +1,9 @@
+# Dark theme for the Sentinel AI cockpit. backgroundColor is set to the logo's
+# exact background (#000208) so the logo blends seamlessly instead of showing a
+# black box; secondaryBackgroundColor is lifted slightly so widgets keep contrast.
+[theme]
+base = "dark"
+backgroundColor = "#000208"
+secondaryBackgroundColor = "#0f1320"
+primaryColor = "#6C5CE7"
+textColor = "#FAFAFA"
