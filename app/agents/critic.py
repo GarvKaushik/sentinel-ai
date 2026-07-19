@@ -1,24 +1,18 @@
-"""
-Critic Agent.
+"""Critic agent — tries to break each hypothesis.
 
-The falsification pass. Its job is explicitly adversarial: for each
-hypothesis the Root-Cause agent proposed, actively hunt the evidence
-ledger for anything that CONTRADICTS it — not just check whether
-supporting evidence exists (the Root-Cause agent already did that).
+Adversarial pass: for every hypothesis, hunt the ledger for evidence that
+CONTRADICTS it (the Root-Cause agent already checked for support).
 
-Same citation-validity enforcement as the Root-Cause agent applies here
-too: any contradicting_evidence_refs the Critic cites must resolve in
-the ledger, or they get stripped. And critically — if the Critic says
-"demoted" but hands back a confidence that isn't actually lower than
-before (a real failure mode: LLMs sometimes say the right verdict word
-but forget to move the number), we enforce the demotion in code rather
-than trusting the LLM's arithmetic.
+Two things enforced in code, not left to the LLM: contradicting refs must
+resolve in the ledger (bad ones are stripped), and a "demoted" verdict must
+actually lower the confidence — LLMs sometimes say the right verdict but forget
+to move the number.
 """
 
 from __future__ import annotations
 import json
 
-from app.schemas.evidence import EvidenceLedger, Hypothesis
+from app.schemas.evidence import EvidenceLedger
 from app.llm.client import chat
 
 CRITIC_MODEL = "openai/gpt-oss-120b"
@@ -77,9 +71,8 @@ Respond ONLY with a JSON object in this exact shape, no other text:
 
 
 def run_critic(ledger: EvidenceLedger) -> EvidenceLedger:
-    """Runs the falsification pass over ledger.hypotheses IN PLACE
-    (mutates and returns the same ledger) — updates each Hypothesis's
-    status, confidence, contradicting_evidence_refs, and critic_rationale."""
+    """Run the falsification pass over the hypotheses in place — updates each
+    one's status, confidence, contradicting refs, and rationale."""
 
     if not ledger.hypotheses:
         return ledger
@@ -116,10 +109,7 @@ def run_critic(ledger: EvidenceLedger) -> EvidenceLedger:
         updated_confidence = float(critique.get("updated_confidence", hyp.confidence))
 
         if verdict == "demoted":
-            # Enforce the demotion actually demotes, regardless of what
-            # number the LLM produced — a "demoted" verdict with an
-            # unchanged or higher confidence is a contradiction we don't
-            # trust the model to self-correct.
+            # "demoted" must actually lower the number — don't trust the LLM to.
             if updated_confidence >= hyp.confidence:
                 print(
                     f"  [validation] {hyp_id}: verdict='demoted' but confidence "
@@ -129,11 +119,8 @@ def run_critic(ledger: EvidenceLedger) -> EvidenceLedger:
             hyp.status = "demoted"
         else:
             hyp.status = "survived_critique"
-            # Mirror-image defensive check: a "survived" verdict with NO
-            # contradicting evidence has no justification for a confidence
-            # drop either — this is a real failure mode, not hypothetical
-            # (an LLM can say "survived, nothing contradicts this" and
-            # still hand back confidence=0.0 for no defensible reason).
+            # Mirror image: "survived" with nothing contradicting it has no reason
+            # to drop confidence either (LLMs sometimes do this anyway).
             if not valid_contradicting_refs and updated_confidence < hyp.confidence:
                 print(
                     f"  [validation] {hyp_id}: verdict='survived' with zero contradicting "

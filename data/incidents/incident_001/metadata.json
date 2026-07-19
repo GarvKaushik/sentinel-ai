@@ -12,6 +12,7 @@
   "expected_evidence_refs": [
     "prometheus:error_rate_pct:svc-payments:2026-07-06T14:33:00Z",
     "log:svc-payments:line:4821",
-    "commit:a1b2c3d"
+    "commit:a1b2c3d",
+    "doc:runbook-deploy-error-spike#common-root-causes"
   ]
 }

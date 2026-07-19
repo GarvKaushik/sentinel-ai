@@ -1,0 +1,15 @@
+{
+  "scenario_id": "scenario_005_resource_exhaustion",
+  "title": "Image service fails under memory pressure",
+  "services_affected": [
+    "svc-images"
+  ],
+  "injected_root_cause": "An image-processing memory leak exhausted pod memory and caused repeated OOM kills.",
+  "root_cause_category": "resource_exhaustion",
+  "red_herrings": [],
+  "expected_evidence_refs": [
+    "prometheus:memory_working_set_mb:svc-images:2026-07-10T14:33:00Z",
+    "log:svc-images:line:501",
+    "doc:runbook-api-latency-spike#common-root-causes-in-order-of-frequency"
+  ]
+}

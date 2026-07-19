@@ -1,0 +1,22 @@
+[
+  {
+    "sha": "c3d4e5f",
+    "author": "maya",
+    "timestamp": "2026-07-12T14:31:45Z",
+    "message": "Rollback inventory API after v2 deployment",
+    "files_changed": [
+      "services/inventory/api/InventoryResponse.java"
+    ],
+    "is_guilty_commit": true
+  },
+  {
+    "sha": "d4e5f6a",
+    "author": "lee",
+    "timestamp": "2026-07-12T14:30:30Z",
+    "message": "Refresh notification email copy",
+    "files_changed": [
+      "services/notifications/templates/stock_email.html"
+    ],
+    "is_guilty_commit": false
+  }
+]

@@ -1,0 +1,9 @@
+[
+  {
+    "timestamp": "2026-07-08T14:33:05Z",
+    "service": "svc-checkout",
+    "level": "ERROR",
+    "message": "UpstreamTimeout: POST payments-authorize exceeded configured 2000ms deadline",
+    "line_id": "log:svc-checkout:line:822"
+  }
+]

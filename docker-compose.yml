@@ -1,12 +1,75 @@
-version: "3.8"
-
 services:
+  app:
+    build: .
+    image: sentinel-app          # named so the worker can reuse this exact image
+    container_name: sentinel-app
+    environment:
+      # Reach the other services by their compose names, not localhost — inside
+      # the container localhost is the app itself.
+      QDRANT_URL: http://qdrant:6333
+      PROMETHEUS_URL: http://prometheus:9090   # ingestion adapter: metric queries
+      TARGET_URL: http://dummy:9000            # ingestion adapter: logs + deploys
+      # Persistence (investigation history) + async job queue.
+      DATABASE_URL: postgresql+psycopg://sentinel:${POSTGRES_PASSWORD}@postgres:5432/sentinel
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      # The image is light (no torch), so it uses the hosted Jina embedder.
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-jina}
+      JINA_API_KEY: ${JINA_API_KEY:?set JINA_API_KEY in your .env (image uses the hosted embedder)}
+      # Provide GROQ_API_KEY via a local .env file (see .env.example).
+      GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in your .env}
+    ports:
+      - "8000:8000"
+    depends_on:
+      # Wait until Postgres/Redis actually accept connections (not just started),
+      # so the schema bootstrap can't lose the race.
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      dummy:
+        condition: service_started
+
+  # Celery worker: same image as `app`, but runs the queue consumer instead of
+  # the web server. It pulls jobs off Redis and runs the ~20s pipeline, writing
+  # results to Postgres. `entrypoint` bypasses docker-entrypoint.sh (which would
+  # otherwise start uvicorn); the app container handles Qdrant ingestion.
+  worker:
+    image: sentinel-app
+    container_name: sentinel-worker
+    entrypoint: ["celery", "-A", "app.tasks:celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      PROMETHEUS_URL: http://prometheus:9090
+      TARGET_URL: http://dummy:9000
+      DATABASE_URL: postgresql+psycopg://sentinel:${POSTGRES_PASSWORD}@postgres:5432/sentinel
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-jina}
+      JINA_API_KEY: ${JINA_API_KEY:?set JINA_API_KEY in your .env (image uses the hosted embedder)}
+      GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in your .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      dummy:
+        condition: service_started
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: sentinel-qdrant
-    ports:
-      - "6333:6333"   # REST API
-      - "6334:6334"   # gRPC
+    # No host ports: reached only over the internal network by app/worker.
     volumes:
       - qdrant_data:/qdrant/storage
 
@@ -15,22 +78,75 @@ services:
     container_name: sentinel-postgres
     environment:
       POSTGRES_USER: sentinel
-      POSTGRES_PASSWORD: sentinel_dev_pw
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your .env}
       POSTGRES_DB: sentinel
-    ports:
-      - "5432:5432"
+    # No host port: reached only over the internal network by app/worker.
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready reports 'accepting connections' — the true readiness signal.
+      test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   redis:
     image: redis:7-alpine
     container_name: sentinel-redis
-    ports:
-      - "6379:6379"
+    # No host port: reached only over the internal network by app/worker.
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 2s
+
+  # --- Demo stack: the target service Sentinel observes, and its Prometheus ---
+  dummy:
+    build:
+      context: .
+      dockerfile: dummy/Dockerfile
+    container_name: sentinel-dummy
+    ports:
+      - "9000:9000"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sentinel-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - dummy
+
+  cockpit:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    container_name: sentinel-cockpit
+    environment:
+      # Internal service-to-service URLs (compose DNS names).
+      DUMMY_URL: http://dummy:9000
+      SENTINEL_URL: http://app:8000
+      PROMETHEUS_URL: http://prometheus:9090
+      # Browser-facing links shown in the UI (published localhost ports).
+      DUMMY_PUBLIC_URL: http://localhost:9000
+      SENTINEL_PUBLIC_URL: http://localhost:8000
+      PROMETHEUS_PUBLIC_URL: http://localhost:9090
+    ports:
+      - "8501:8501"
+    depends_on:
+      - app
+      - dummy
+      - prometheus
 
 volumes:
   qdrant_data:
   postgres_data:
   redis_data:
+  prometheus_data:

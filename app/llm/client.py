@@ -1,14 +1,8 @@
-"""
-Thin wrapper around Groq's API.
+"""Thin wrapper around Groq's API.
 
-Groq exposes an OpenAI-compatible endpoint, so we just point the
-standard `openai` client at Groq's base_url instead of pulling in a
-separate SDK. Uses openai/gpt-oss-20b by default — fast and cheap,
-appropriate for the Correlator agent's summarization role (NOT for
-root-cause reasoning or the Critic's falsification pass, which deserve
-a stronger model — swap the default when you build those agents).
-
-Requires GROQ_API_KEY in your environment (.env file, see .env.example).
+Groq speaks the OpenAI API, so we just point the openai client at Groq's URL.
+Default model is gpt-oss-20b (fast/cheap); the reasoning agents pass a stronger
+one. Needs GROQ_API_KEY (see .env.example).
 """
 
 from __future__ import annotations
@@ -16,7 +10,7 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv()  # reads .env into os.environ — this was missing before
+load_dotenv()  # load .env into the environment
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 DEFAULT_MODEL = "openai/gpt-oss-20b"
@@ -39,14 +33,11 @@ def chat(
     temperature: float = 0.2,
     json_mode: bool = False,
 ) -> str:
-    """One-shot chat completion. Low temperature by default — this is an
-    incident investigation tool, not a creative writing one; you want
-    consistent, boring, reproducible output over flair.
+    """One-shot chat completion. Low temperature by default — we want boring,
+    reproducible output, not flair.
 
-    json_mode=True requests JSON-object output where the model supports
-    it (Groq's OpenAI-compatible endpoint honors response_format for
-    most chat models). Always still validate/parse defensively — never
-    trust that json_mode alone guarantees well-formed output."""
+    json_mode=True asks for a JSON object where the model supports it. Still
+    parse defensively — it doesn't guarantee valid JSON."""
 
     client = get_groq_client()
     messages = []
