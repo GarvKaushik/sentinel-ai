@@ -351,17 +351,23 @@ they appear there.
 
 | Service | Port | Used today |
 | --- | --- | --- |
-| app (this repo's `Dockerfile`) | 8000 | Yes. The FastAPI service; on boot it waits for Qdrant, ingests runbooks, then serves. |
+| app (this repo's `Dockerfile`) | 8000 | Yes. The Sentinel FastAPI service; on boot it waits for Qdrant, ingests runbooks, then serves. |
+| cockpit (`ui/Dockerfile`) | 8501 | Yes. The Streamlit demo cockpit — fault injection, live telemetry, one-click investigation. |
+| dummy (`dummy/Dockerfile`) | 9000 | Yes. The target service Sentinel observes; exposes `/metrics`, `/logs`, `/deploys`, fault injection. |
+| Prometheus | 9090 | Yes. Scrapes the dummy; Sentinel's adapter queries it. |
 | Qdrant | 6333 REST, 6334 gRPC | Yes, for persistent runbook retrieval. |
 | PostgreSQL 16 | 5432 | No. Reserved for future incident/report storage. |
 | Redis 7 | 6379 | No. Reserved for future task queue/cache. |
 
-The `app` service reaches Qdrant via `QDRANT_URL=http://qdrant:6333` (the
-compose service name) and reads `GROQ_API_KEY` from your local `.env`. The
-image bakes the embedding model in at build time so startup needs no Hugging
-Face download. `docker-entrypoint.sh` runs the idempotent runbook ingestion
-before starting uvicorn, so a fresh `docker compose up` yields a populated,
-queryable service with no manual steps.
+The whole demo starts with **one command** — `docker compose up --build` — and
+opens at `http://localhost:8501` (the cockpit). Services reach each other by
+compose DNS names: the Sentinel `app` uses `QDRANT_URL=http://qdrant:6333`,
+`PROMETHEUS_URL=http://prometheus:9090`, `TARGET_URL=http://dummy:9000`, and reads
+`GROQ_API_KEY` from your local `.env`; the `cockpit` uses internal URLs for its
+own calls but shows `localhost` links for the browser. The app image bakes the
+embedding model in at build time, and `docker-entrypoint.sh` runs the idempotent
+runbook ingestion before serving, so a fresh `up` is fully populated with no
+manual steps.
 
 ### LLM provider
 
