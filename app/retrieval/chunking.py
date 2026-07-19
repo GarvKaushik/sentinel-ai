@@ -1,15 +1,8 @@
-"""
-Chunking for the RAG corpus.
+"""Chunk runbooks by markdown section (## headers), not fixed-size windows.
 
-Deliberately chunks by markdown section (## headers), not fixed-size
-windows. This matters for two reasons:
-
-1. Citations need to point somewhere meaningful. "doc:runbook-api-latency
-   -spike#diagnostic-steps" is useful to a human reading a postmortem;
-   "doc:runbook-api-latency-spike:chunk_7" is not.
-2. Sections in these runbooks are semantically coherent units (symptoms,
-   root causes, diagnostics, remediation) — splitting mid-section by
-   character count would cut a root-cause explanation in half.
+Two reasons: citations should point somewhere meaningful ("...#diagnostic-steps",
+not "...:chunk_7"), and each section is already a coherent unit — splitting by
+character count would cut an explanation in half.
 """
 
 from __future__ import annotations
@@ -35,10 +28,8 @@ def _slugify(title: str) -> str:
 
 
 def chunk_markdown_file(filepath: Path) -> list[Chunk]:
-    """Split a runbook markdown file into one chunk per ## section.
-    The document title (# header) is prepended to every chunk's text
-    for context, since embeddings do better with some surrounding
-    context than a bare section in isolation."""
+    """Split a runbook into one chunk per ## section. The doc title (# header) is
+    prepended to each chunk so embeddings have some context, not a bare section."""
 
     text = filepath.read_text(encoding="utf-8")
     doc_id = filepath.stem.replace("_", "-")  # e.g. "runbook_api_latency_spike" -> "runbook-api-latency-spike"

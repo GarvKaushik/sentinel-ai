@@ -1,12 +1,8 @@
-"""
-Synthetic incident scenario schema.
+"""A fake incident, with the answer key.
 
-Each scenario is a self-contained, ground-truth-labeled "fake production
-incident" — realistic-looking metrics, logs, and deploy history, plus the
-one thing real incidents never come with: the actual correct answer.
-
-This is what your eval harness scores against. Root Cause Accuracy =
-did the pipeline's top hypothesis match `injected_root_cause`.
+Each scenario has realistic-looking metrics/logs/deploys plus the one thing real
+incidents don't come with: the actual root cause. The eval harness scores the
+pipeline's top hypothesis against `injected_root_cause`.
 """
 
 from __future__ import annotations
@@ -37,7 +33,7 @@ class CommitInfo(BaseModel):
     files_changed: list[str]
     is_guilty_commit: bool = Field(
         default=False,
-        description="Ground truth flag — is this the commit that actually caused the incident?",
+        description="the commit that actually caused it (ground truth)",
     )
 
 
@@ -46,10 +42,8 @@ class IncidentScenario(BaseModel):
     title: str
     services_affected: list[str]
 
-    # The ground truth — never shown to the pipeline, only used by the eval
-    # harness for scoring. OPTIONAL: real incidents (built by the ingestion
-    # adapter from live telemetry) have no label, so these are None there.
-    # The investigation pipeline never reads them; only eval fixtures set them.
+    # The answer key — never shown to the pipeline, only used by eval to score.
+    # None for real incidents (the ingestion adapter has no label to give).
     injected_root_cause: Optional[str] = None
     root_cause_category: Optional[
         Literal[
@@ -64,15 +58,13 @@ class IncidentScenario(BaseModel):
         ]
     ] = None
 
-    # The synthetic data itself
+    # the data
     metrics: list[MetricPoint]
     logs: list[LogEntry]
     deploy_history: list[CommitInfo]
 
-    # For red-herring scenarios especially: a decoy that a naive system
-    # (e.g. "blame the most recent deploy") would incorrectly pick
+    # a decoy a naive system would wrongly blame (for red-herring scenarios)
     red_herrings: list[str] = Field(default_factory=list)
 
-    # What a correct investigation SHOULD end up citing — used for
-    # Retrieval Recall scoring against the Retriever agent's output
+    # what a correct investigation should cite — used to score retrieval recall
     expected_evidence_refs: list[str] = Field(default_factory=list)

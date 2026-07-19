@@ -1,16 +1,9 @@
-"""
-Evidence Object schema.
+"""The core data model: every claim is an EvidenceObject with a citation.
 
-This is the single most important data model in the project. Every agent
-after the Correlator/Retriever consumes and produces EvidenceObjects instead
-of free text. This is what makes citation enforcement, the Critic agent's
-falsification pass, and the eval harness's citation-precision metric all
-possible.
-
-Design rule: no agent is allowed to make a claim without attaching a
-source_ref that resolves to something real (a specific log line, a metric
-timestamp, a commit SHA, or a doc chunk id). If it can't cite something
-real, it doesn't get to say it.
+Agents pass these around instead of free text. The rule that makes the whole
+thing trustworthy: no claim without a source_ref that points at something real
+(a log line, a metric timestamp, a commit, a doc chunk). Can't cite it? Can't
+say it.
 """
 
 from __future__ import annotations
@@ -29,23 +22,17 @@ class SourceType(str, Enum):
 
 
 class EvidenceObject(BaseModel):
-    """A single, atomic, sourced claim about the incident."""
+    """One sourced claim about the incident."""
 
     claim: str = Field(..., description="Plain-language statement of what was observed")
     source_type: SourceType
     source_ref: str = Field(
         ...,
-        description=(
-            "A resolvable pointer to the underlying data, e.g. "
-            "'prometheus:api_error_rate:2026-07-06T14:32:00Z', "
-            "'log:svc-payments:line:4821', "
-            "'commit:a1b2c3d', "
-            "'doc:runbook-latency-spike#section-3'"
-        ),
+        description="A pointer to the real data, e.g. 'log:svc-payments:line:4821' or 'commit:a1b2c3d'",
     )
     confidence: float = Field(..., ge=0.0, le=1.0)
     timestamp: Optional[datetime] = None
-    produced_by: str = Field(..., description="Which agent generated this evidence, e.g. 'correlator_agent'")
+    produced_by: str = Field(..., description="Which agent made this, e.g. 'correlator_agent'")
 
     @field_validator("claim")
     @classmethod
@@ -56,18 +43,18 @@ class EvidenceObject(BaseModel):
 
 
 class Hypothesis(BaseModel):
-    """A candidate root cause, grounded in one or more EvidenceObjects."""
+    """A candidate root cause, backed by evidence."""
 
     hypothesis_id: str
     description: str
     confidence: float = Field(..., ge=0.0, le=1.0)
     supporting_evidence_refs: list[str] = Field(
         default_factory=list,
-        description="source_ref values from EvidenceObjects that support this hypothesis",
+        description="source_refs that support this hypothesis",
     )
     contradicting_evidence_refs: list[str] = Field(
         default_factory=list,
-        description="Filled in by the Critic agent during the falsification pass",
+        description="filled in by the Critic",
     )
     status: str = Field(
         default="proposed",
@@ -77,11 +64,11 @@ class Hypothesis(BaseModel):
 
 
 class Recommendation(BaseModel):
-    """Output of the Recommendation Agent — a grounded, actionable fix
-    proposal. Every entry in supporting_evidence_refs must resolve in
-    the ledger, same rule as Hypothesis. If no grounded recommendation
-    can be made, the agent falls back to an explicit escalation rather
-    than presenting an ungrounded fix — see app/agents/recommendation.py."""
+    """The fix the Recommendation agent proposes.
+
+    Same citation rule as everything else: every ref must resolve in the ledger.
+    If it can't ground a real fix, it escalates to a human instead (see
+    app/agents/recommendation.py)."""
 
     summary: str
     detailed_steps: list[str] = Field(default_factory=list)
@@ -89,24 +76,22 @@ class Recommendation(BaseModel):
     risk_notes: Optional[str] = None
     is_fallback_escalation: bool = Field(
         default=False,
-        description="True when the agent couldn't ground a real fix and escalated instead",
+        description="True when it couldn't ground a fix and escalated instead",
     )
 
 
 class CitedStatement(BaseModel):
-    """A human-readable statement with the evidence that supports it.
+    """A sentence plus the evidence behind it.
 
-    Postmortems are deliberately built from these rather than plain strings,
-    so provenance can be checked mechanically before a report is shown to an
-    operator or saved as an incident record.
-    """
+    Postmortems are built from these (not plain strings) so we can check the
+    citations before showing the report to anyone."""
 
     text: str = Field(..., min_length=1)
     supporting_evidence_refs: list[str] = Field(default_factory=list)
 
 
 class PostmortemReport(BaseModel):
-    """Structured, evidence-backed incident report generated after critique."""
+    """The final, evidence-backed incident report."""
 
     incident_id: str
     title: str
@@ -118,11 +103,8 @@ class PostmortemReport(BaseModel):
 
 
 class EvidenceLedger(BaseModel):
-    """
-    The full, running collection of evidence + hypotheses for one incident
-    investigation. Agents append to this rather than passing raw text
-    between each other.
-    """
+    """All the evidence + hypotheses for one investigation. Agents append to
+    this instead of passing text between each other."""
 
     incident_id: str
     evidence: list[EvidenceObject] = Field(default_factory=list)
@@ -134,15 +116,13 @@ class EvidenceLedger(BaseModel):
         self.evidence.append(item)
 
     def resolve_ref(self, source_ref: str) -> Optional[EvidenceObject]:
-        """Look up an EvidenceObject by its source_ref. Used by the
-        provenance validator to check that a claim's citation actually
-        exists before it's allowed into a report."""
+        """Find the evidence with this source_ref, or None. Used to check a
+        citation actually exists before a claim is allowed into a report."""
         for e in self.evidence:
             if e.source_ref == source_ref:
                 return e
         return None
 
     def unresolved_refs(self, refs: list[str]) -> list[str]:
-        """Return any refs in the given list that do NOT resolve to a real
-        EvidenceObject. An empty list back means every citation is valid."""
+        """Which of these refs don't point at real evidence. Empty = all valid."""
         return [r for r in refs if self.resolve_ref(r) is None]

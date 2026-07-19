@@ -1,18 +1,11 @@
-"""
-Recommendation Agent.
+"""Recommendation agent — proposes a concrete, grounded fix.
 
-Takes the top surviving hypothesis (post-Critic), retrieves remediation
-guidance from the runbooks specifically (reuses the Retriever), and asks
-the LLM to propose a concrete, grounded fix.
+Takes the top surviving hypothesis, pulls remediation guidance from the runbooks
+(reusing the Retriever), and asks the LLM for an actionable fix.
 
-Same citation enforcement as Root-Cause/Critic. But this agent adds one
-more safety property specific to recommending ACTIONS rather than just
-claims: if the proposed fix can't be grounded in real evidence after
-stripping invalid refs, we do NOT fall back to presenting an ungrounded
-"fix" for someone to act on during a live incident. We fall back to an
-explicit escalation instead. Silently degrading a recommendation's
-citations is fine for a postmortem claim; it is not fine for "here's
-what to go do to production right now."
+Same citation rule as the others, plus one extra: because this recommends an
+ACTION on production, if the fix can't be grounded after stripping bad refs it
+escalates to a human rather than presenting an unverified "fix".
 """
 
 from __future__ import annotations
@@ -40,9 +33,8 @@ FALLBACK_ESCALATION = Recommendation(
 
 
 def get_top_hypothesis(ledger: EvidenceLedger) -> Hypothesis | None:
-    """The top hypothesis by confidence that survived critique. Demoted
-    hypotheses are never used as the basis for a recommendation, even if
-    their confidence number happens to be non-trivial."""
+    """The highest-confidence hypothesis that survived critique. Demoted ones are
+    never used, even if their number looks decent."""
     survivors = [h for h in ledger.hypotheses if h.status == "survived_critique"]
     if not survivors:
         return None
@@ -92,7 +84,7 @@ def run_recommendation(ledger: EvidenceLedger, use_in_memory_qdrant: bool = Fals
         ledger.recommendation = FALLBACK_ESCALATION
         return ledger
 
-    # Retrieve remediation-specific runbook guidance, grounded in the top hypothesis
+    # Pull remediation guidance from the runbooks for this hypothesis.
     from app.retrieval.embeddings import get_embedder
     client = get_qdrant_client(in_memory=use_in_memory_qdrant)
     embedder = get_embedder()
@@ -100,7 +92,7 @@ def run_recommendation(ledger: EvidenceLedger, use_in_memory_qdrant: bool = Fals
     query = build_remediation_query(top_hyp)
     remediation_evidence = search_runbooks(query, client, embedder, top_k=2, produced_by="recommendation_agent")
     for e in remediation_evidence:
-        # avoid duplicate refs if the same chunk was already retrieved earlier
+        # skip chunks already in the ledger
         if ledger.resolve_ref(e.source_ref) is None:
             ledger.add_evidence(e)
 

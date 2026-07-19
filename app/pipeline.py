@@ -1,14 +1,11 @@
-"""
-Full investigation pipeline — the single orchestration entry point.
+"""The whole investigation, start to finish.
 
-Chains the agents in order and returns the completed EvidenceLedger:
+Runs the agents in order and returns the finished ledger:
 
-    Correlator (inside root-cause) -> Retriever -> Root-Cause -> Critic
-    -> Recommendation -> Postmortem
+    Correlator -> Retriever -> Root-Cause -> Critic -> Recommendation -> Postmortem
 
-Both the HTTP API (app/main.py) and any batch/eval caller should go through
-run_investigation() rather than re-implementing the chain, so the ordering and
-the citation-validation guarantees live in exactly one place.
+Everything (the API, eval, the worker) goes through run_investigation(), so the
+order and the citation checks live in one place.
 """
 
 from __future__ import annotations
@@ -22,12 +19,11 @@ from app.agents.postmortem import generate_postmortem
 
 
 def run_investigation(scenario: IncidentScenario) -> EvidenceLedger:
-    """Run the complete investigation for one incident and return the ledger
-    with hypotheses, recommendation, and postmortem attached.
+    """Run the full investigation for one incident and return the ledger with
+    hypotheses, recommendation, and postmortem filled in.
 
-    Synchronous and LLM-backed: this makes several model calls and can take
-    tens of seconds. The /alert endpoint runs it off the request path via a
-    Celery worker (app/tasks.py); direct callers here run it inline."""
+    Takes tens of seconds (several LLM calls). /alert runs this on a worker;
+    other callers run it inline."""
     ledger = run_root_cause_investigation(scenario)
     ledger = run_critic(ledger)
     ledger = run_recommendation(ledger)

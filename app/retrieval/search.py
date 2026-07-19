@@ -1,19 +1,12 @@
-"""
-Query interface for the runbook RAG corpus.
+"""Search the runbooks.
 
-Returns EvidenceObjects directly, not raw text — every retrieved chunk
-comes with a source_ref pointing back to the exact doc section it came
-from, so downstream agents (Root-Cause, Critic) can cite it and the
-provenance validator can check it resolves.
+Returns EvidenceObjects (not raw text) — each hit carries a source_ref back to
+the exact doc section, so agents can cite it and the validator can check it.
 
-Retrieval is hybrid by default: dense vector search (Qdrant, MiniLM
-embeddings) fused with BM25 keyword search via Reciprocal Rank Fusion.
-Dense search alone misses sections whose relevance is lexical rather than
-semantic (e.g. an error string or metric name that appears verbatim in one
-runbook section); BM25 alone misses paraphrases. RRF combines their rankings
-without needing the two score scales to be comparable. Pass ``mode="dense"``
-or ``mode="bm25"`` to isolate a single retriever — the evaluation harness
-uses this to measure the recall each one contributes.
+Hybrid by default: dense vector search + BM25 keyword search, fused with
+Reciprocal Rank Fusion. Dense alone misses verbatim matches (an error string, a
+metric name); BM25 alone misses paraphrases; RRF combines them. Pass
+mode="dense" or mode="bm25" to use just one (the eval harness does this).
 """
 
 from __future__ import annotations
@@ -33,15 +26,13 @@ RRF_K = 60
 
 
 def _tokenize(text: str) -> list[str]:
-    """Lowercase word-token split. Deliberately simple — the corpus is small
-    and BM25 is robust to naive tokenization."""
+    """Lowercase word split. Simple on purpose — the corpus is small."""
     return re.findall(r"\w+", text.lower())
 
 
 def _fetch_corpus(client: QdrantClient) -> list[dict]:
-    """Pull every chunk payload from Qdrant so BM25 can index the same corpus
-    the dense index was built from. Qdrant stays the single source of truth —
-    no re-reading the runbook files at query time."""
+    """Pull every chunk from Qdrant so BM25 indexes the same corpus as the dense
+    search — Qdrant stays the single source of truth."""
     points, _ = client.scroll(
         collection_name=COLLECTION_NAME,
         limit=10_000,
@@ -68,11 +59,8 @@ def _bm25_ranking(query: str, corpus: list[dict]) -> list[str]:
 
 
 def _reciprocal_rank_fusion(ranked_lists: list[list[str]], k: int = RRF_K) -> dict[str, float]:
-    """Fuse several ranked source_ref lists into one score per source_ref.
-
-    RRF score = sum over lists of 1 / (k + rank), rank starting at 1. A doc
-    ranked highly by either retriever scores well; a doc ranked highly by
-    both scores best."""
+    """Fuse ranked lists into one score per ref: sum of 1/(k+rank). A doc ranked
+    high by either retriever scores well; high by both scores best."""
     fused: dict[str, float] = {}
     for ranked in ranked_lists:
         for rank, source_ref in enumerate(ranked, start=1):
@@ -88,16 +76,12 @@ def search_runbooks(
     produced_by: str = "retriever_agent",
     mode: str = "hybrid",
 ) -> list[EvidenceObject]:
-    """Retrieve runbook sections as EvidenceObjects ready for the ledger.
+    """Retrieve runbook sections as EvidenceObjects for the ledger.
 
-    ``mode``:
-      - ``"hybrid"`` (default): RRF over dense + BM25 rankings.
-      - ``"dense"``: vector search only; ``confidence`` is the cosine score.
-      - ``"bm25"``: keyword search only.
-
-    For hybrid/bm25, ``confidence`` is a fused relevance score normalized so
-    the top result is 1.0 — it is a ranking signal, not a cosine similarity.
-    """
+    mode: "hybrid" (default) fuses dense + BM25; "dense" is vector-only
+    (confidence = cosine score); "bm25" is keyword-only. For hybrid/bm25,
+    confidence is a fused rank score normalized to 1.0 at the top — a ranking
+    signal, not a cosine similarity."""
     corpus = _fetch_corpus(client)
     payload_by_ref = {c["source_ref"]: c for c in corpus}
 

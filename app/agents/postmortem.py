@@ -1,9 +1,8 @@
-"""Evidence-backed postmortem generation.
+"""Build the postmortem — no LLM, on purpose.
 
-This is intentionally deterministic: it turns the already validated
-investigation ledger into a structured report without asking an LLM to make
-new factual claims. An LLM-written narrative can be added later only if it
-produces the same ``CitedStatement`` contract and passes ``validate_postmortem``.
+Turns the finished, already-validated ledger into a structured report without
+inventing any new facts. (An LLM narrative could be added later, as long as it
+produces the same CitedStatement shape and passes validate_postmortem.)
 """
 
 from __future__ import annotations

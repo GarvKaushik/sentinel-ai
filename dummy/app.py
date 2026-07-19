@@ -1,18 +1,12 @@
-"""
-Dummy target service for Sentinel AI demos.
+"""Dummy target service for the demo.
 
-A stand-in for "a real production microservice." It:
-  * exposes Prometheus metrics at /metrics,
-  * runs a background simulator that emits realistic baseline traffic and,
-    when a fault is injected, shifts exactly the metric + log signature that
-    fault's runbook describes,
-  * serves structured logs at /logs and a deploy history at /deploys — the two
-    non-metric sources Sentinel's ingestion adapter will read,
-  * takes fault injection via POST /faults/{fault_id}.
+A stand-in for a real microservice. It exposes Prometheus metrics at /metrics,
+runs a background simulator that emits baseline traffic and — when a fault is
+injected — shifts exactly that fault's metric + log signature, and serves /logs
+and /deploys (the non-metric sources Sentinel reads). Inject via POST
+/faults/{fault_id}.
 
-Sentinel does NOT run inside this app. This is the *subject*; Sentinel observes
-it from outside (Prometheus scrape + /logs + /deploys). Run:
-
+Sentinel doesn't run in here — this is the subject it observes from outside. Run:
     uvicorn dummy.app:app --port 9000
 """
 
@@ -92,8 +86,8 @@ def add_deploy(fault_id: str) -> None:
 
 
 def _sample_latency_seconds(p95_ms: float) -> float:
-    """Draw a latency whose 95th percentile is ~p95_ms: most requests fast,
-    ~5% near the target so histogram_quantile(0.95, ...) lands on p95_ms."""
+    """Draw a latency whose ~95th percentile is p95_ms: most requests fast,
+    ~5% near the target."""
     if random.random() < 0.95:
         return random.uniform(0.005, 0.035)
     return random.uniform(p95_ms * 0.8, p95_ms * 1.2) / 1000.0
@@ -105,10 +99,8 @@ def simulate_tick() -> None:
     p = profile_for(fault)
     svc = SERVICE
 
-    # Requests this tick. Errors are drawn per-request (probabilistic) rather
-    # than a rounded count, so a low baseline error_rate still yields a small
-    # non-zero rate over a scrape window instead of quantizing to exactly 0 —
-    # which the correlator's "value >= 3x baseline" rule needs to fire.
+    # Draw errors per-request (not a rounded count) so a low baseline rate stays
+    # non-zero over a scrape window — the correlator's "3x baseline" rule needs it.
     n = max(1, int(BASE_RPS * p["rps_multiplier"]))
     for _ in range(n):
         status = p["error_status"] if random.random() < p["error_rate"] else 200
@@ -168,8 +160,8 @@ app = FastAPI(title=f"Dummy Target Service ({SERVICE})", version="0.1.0", lifesp
 
 @app.get("/metrics")
 def metrics():
-    """Prometheus exposition. An explicit route (not a sub-app mount) so the
-    path has no trailing-slash redirect for the scraper."""
+    """Prometheus exposition. Explicit route so there's no trailing-slash
+    redirect for the scraper."""
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -191,9 +183,8 @@ def list_faults():
     }
 
 
-# NOTE: the static /faults/clear route MUST be declared before the
-# /faults/{fault_id} route — FastAPI matches in definition order, so otherwise
-# "clear" is captured as a fault_id.
+# /faults/clear MUST come before /faults/{fault_id} — FastAPI matches in order,
+# else "clear" is captured as a fault_id.
 @app.post("/faults/clear")
 def clear_fault():
     STATE["active_fault"] = None

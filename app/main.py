@@ -1,18 +1,17 @@
-"""
-Sentinel AI — FastAPI entrypoint.
+"""The web API.
 
-Exposes the investigation pipeline over HTTP:
+Routes:
+  GET  /health                      is it alive
+  GET  /incidents                   list the built-in demo incidents
+  POST /investigate                 run a full investigation on a posted incident
+  POST /investigate/{incident_id}   run one on a built-in incident
+  POST /alert                       investigate a LIVE incident from telemetry
+  GET  /investigations[/{id}]       past runs (history) + one run's full result
+  GET  /smoke-test/evidence-ledger  quick schema self-check, no LLM
 
-  GET  /health                       liveness probe
-  GET  /smoke-test/evidence-ledger   schema self-check (no agents/LLM)
-  GET  /incidents                    list the built-in incident catalogue
-  POST /investigate                  run a full investigation on a posted incident
-  POST /investigate/{incident_id}    run a full investigation on a catalogue incident
-
-The /investigate routes run the whole LLM-backed pipeline synchronously and
-can take tens of seconds. /alert instead enqueues the work on Redis and returns
-a job id immediately; the Celery worker runs the pipeline off the request path
-and writes the result to Postgres (see app/tasks.py + app/db/).
+/investigate runs the pipeline inline (tens of seconds). /alert instead queues
+the work on Redis and returns a job id; a Celery worker runs it and saves the
+result to Postgres, which you poll via /investigations/{id}.
 """
 
 from __future__ import annotations
@@ -35,8 +34,8 @@ from app.db.base import engine_available, init_db
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Create the investigations table if a database is configured. Best-effort:
-    # if Postgres is off, the API still serves — it just won't keep history.
+    # Make the investigations table if a DB is set up. If not, the API still
+    # runs — it just won't keep any history.
     if init_db():
         print("Postgres persistence: schema ready.")
     else:
@@ -50,15 +49,14 @@ INCIDENTS_DIR = Path(__file__).resolve().parents[1] / "data" / "incidents"
 
 
 def _catalogue_ids() -> list[str]:
-    """Names of built-in incident folders (those with a metadata.json)."""
+    """Names of the built-in incident folders."""
     if not INCIDENTS_DIR.exists():
         return []
     return sorted(p.name for p in INCIDENTS_DIR.iterdir() if p.is_dir() and (p / "metadata.json").exists())
 
 
 def _ledger_response(ledger: EvidenceLedger) -> dict:
-    """Serialize a completed investigation for the API, including a
-    human-readable rendered postmortem alongside the structured ledger."""
+    """Turn a finished investigation into the JSON the API returns."""
     return {
         "incident_id": ledger.incident_id,
         "evidence_count": len(ledger.evidence),
@@ -76,13 +74,13 @@ def health():
 
 @app.get("/incidents")
 def list_incidents():
-    """The built-in incident catalogue that /investigate/{incident_id} can run."""
+    """The built-in incidents you can run by id."""
     return {"incidents": _catalogue_ids()}
 
 
 @app.post("/investigate")
 def investigate(scenario: IncidentScenario):
-    """Run a full investigation on an incident supplied in the request body."""
+    """Run a full investigation on an incident sent in the request body."""
     ledger = run_investigation(scenario)
     resp = _ledger_response(ledger)
     resp["investigation_id"] = repo.save_completed(ledger, trigger="manual")
@@ -97,25 +95,21 @@ class AlertTrigger(BaseModel):
 
 @app.post("/alert")
 def investigate_alert(alert: AlertTrigger):
-    """Alert-driven investigation of a LIVE incident — the production-shaped entry
-    point an Alertmanager webhook would call.
+    """Investigate a LIVE incident (what an Alertmanager webhook would call).
 
-    When a database + queue are configured (docker-compose), this ENQUEUES the
-    work on Redis and returns a job handle immediately; a Celery worker builds
-    the incident from live telemetry, runs the pipeline, and writes the result
-    to Postgres. Poll GET /investigations/{investigation_id} for the outcome.
-
-    With no DATABASE_URL (a bare `uvicorn` dev run), it falls back to running the
-    pipeline synchronously so the endpoint still works end-to-end."""
+    If a DB + queue are set up, this drops the job on Redis and returns a job id
+    right away — a worker runs it and saves the result to Postgres (poll
+    /investigations/{id}). Without a DB, it just runs inline instead.
+    """
     if engine_available():
         row_id = repo.create_pending(trigger="alert", service=alert.service, metric=alert.metric)
-        from app.tasks import run_investigation_task  # lazy: avoids importing celery in dev
+        from app.tasks import run_investigation_task  # imported here so dev without celery still works
 
         try:
             async_result = run_investigation_task.delay(
                 row_id, alert.service, alert.metric, alert.window_minutes
             )
-        except Exception as exc:  # broker (Redis) unreachable — fail the row, don't leave it stuck
+        except Exception as exc:  # Redis down — mark the row failed instead of leaving it stuck
             repo.mark_failed(row_id, f"could not enqueue job: {type(exc).__name__}: {exc}")
             raise HTTPException(status_code=503, detail="job queue unavailable (is Redis up?)")
 
@@ -128,7 +122,7 @@ def investigate_alert(alert: AlertTrigger):
             "source": {"service": alert.service, "metric": alert.metric},
         }
 
-    # --- synchronous fallback: no persistence/queue configured ---
+    # No DB/queue — just run it inline.
     scenario = build_incident_from_alert(
         service=alert.service, metric=alert.metric, window_minutes=alert.window_minutes,
     )
@@ -141,8 +135,8 @@ def investigate_alert(alert: AlertTrigger):
 
 @app.post("/investigate/{incident_id}")
 def investigate_catalogue(incident_id: str):
-    """Run a full investigation on a built-in catalogue incident by id."""
-    if incident_id not in _catalogue_ids():  # also rejects path traversal — id must match a known folder
+    """Run a full investigation on a built-in incident by id."""
+    if incident_id not in _catalogue_ids():  # must match a known folder (also blocks path traversal)
         raise HTTPException(
             status_code=404,
             detail=f"unknown incident_id '{incident_id}'. Known: {_catalogue_ids()}",
@@ -156,17 +150,14 @@ def investigate_catalogue(incident_id: str):
 
 @app.get("/investigations")
 def list_investigations(limit: int = 50):
-    """Recent investigation history (most recent first). Empty when persistence
-    is disabled — check `enabled` to tell 'no history' from 'no database'."""
+    """Recent runs, newest first. 'enabled' is false when there's no database."""
     return {"enabled": engine_available(), "investigations": repo.list_investigations(limit=limit)}
 
 
 @app.get("/investigations/{investigation_id}")
 def get_investigation(investigation_id: int):
-    """Full stored record for one investigation: status, ledger, postmortem.
-
-    Also the poll target for async /alert jobs — the cockpit hits this until
-    `status` is `done` or `failed`."""
+    """One run's full stored result. Also what the cockpit polls after /alert
+    until status is done or failed."""
     record = repo.get_investigation(investigation_id)
     if record is None:
         detail = (
@@ -180,12 +171,8 @@ def get_investigation(investigation_id: int):
 
 @app.get("/smoke-test/evidence-ledger")
 def smoke_test_evidence_ledger():
-    """
-    Manually builds a tiny EvidenceLedger to confirm the schema works
-    end-to-end: create evidence, add hypotheses, resolve a citation,
-    and detect an invalid one. This is your Day 1 'does the core data
-    model actually work' check before writing any agent logic.
-    """
+    """Build a tiny ledger by hand to check the core schema works: add evidence,
+    resolve a real citation, and flag a fake one. No LLM involved."""
     ledger = EvidenceLedger(incident_id="scenario_001_bad_deploy")
 
     ledger.add_evidence(
@@ -208,7 +195,7 @@ def smoke_test_evidence_ledger():
     )
 
     valid_refs = [e.source_ref for e in ledger.evidence]
-    fake_ref = "log:svc-payments:line:9999999"  # doesn't exist — should be flagged
+    fake_ref = "log:svc-payments:line:9999999"  # not in the ledger — should be flagged
 
     return {
         "incident_id": ledger.incident_id,

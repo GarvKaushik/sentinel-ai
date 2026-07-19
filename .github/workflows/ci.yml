@@ -1,14 +1,11 @@
 name: CI
 
-# Lean CI for a 0-cost portfolio project:
-#   * lint   — ruff, real-error rules only (no style nits, so it stays green)
-#   * test   — the full offline test suite (no GROQ_API_KEY, no running services)
-#   * docker — validate the compose file + build the light images (dummy, cockpit)
+# Lean CI:
+#   * lint   — ruff, real-error rules only
+#   * test   — the offline test suite (no keys, no services)
+#   * docker — validate compose + build the light images (dummy, cockpit)
 #
-# The heavy app image (CPU torch + a baked embedding model) is deliberately NOT
-# built on every push: it is slow and would burn CI minutes for little signal.
-# There is no deploy (CD) stage — this project is presented via recordings, not
-# a live cloud URL, so there is no deploy target by design.
+# No CD stage — the project is shown via recordings, not a live URL.
 
 on:
   push:

@@ -1,14 +1,9 @@
-"""
-Sentinel AI — Demo Cockpit (Streamlit).
+"""Sentinel AI — demo cockpit (Streamlit).
 
-One screen to drive the whole demo:
-  * see every service's status,
-  * inject any of the 12 faults with one click (and heal),
-  * watch the live telemetry move,
-  * run a full investigation and read the cited postmortem.
+One screen to drive the demo: see service status, inject any of the 12 faults
+(and heal), watch the live telemetry, run an investigation, and browse history.
 
-Run (with the stack already up via `docker compose up`):
-    streamlit run ui/app.py
+Run (with the stack up):  streamlit run ui/app.py
 """
 
 from __future__ import annotations
@@ -20,7 +15,7 @@ import streamlit as st
 
 import services as svc
 
-LOGO = str(Path(__file__).parent / "sentinel_logo.png")  # transparent-background version
+LOGO = str(Path(__file__).parent / "sentinel_logo.png") 
 
 st.set_page_config(page_title="Sentinel AI — Demo Cockpit", page_icon=LOGO, layout="wide")
 st.logo(LOGO, size="large")

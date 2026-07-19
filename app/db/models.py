@@ -1,10 +1,8 @@
 """ORM models.
 
-One table for now: ``investigations`` — a durable record of every pipeline run
-(manual, catalogue, or alert-driven). The full ledger is stored as JSON so the
-history view can replay the exact hypotheses/postmortem that were produced,
-while the flat columns (service, status, top_root_cause, confidence) make the
-list view cheap to query.
+One table: investigations — a record of every run (manual, catalogue, or alert).
+The full ledger is stored as JSON so history can replay the exact result; the
+flat columns (service, status, top_root_cause…) make the list view cheap.
 """
 
 from __future__ import annotations

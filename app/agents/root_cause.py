@@ -1,25 +1,12 @@
-"""
-Root-Cause Agent.
+"""Root-Cause agent — proposes ranked hypotheses.
 
-The first agent in the pipeline that does real reasoning rather than
-detection or summarization. It combines:
-  1. The Correlator agent's evidence (metrics/logs/deploy correlation)
-  2. The Retriever agent's evidence (relevant runbook guidance)
-into one EvidenceLedger, then asks a stronger LLM to propose ranked
-root-cause hypotheses.
+Takes the Correlator's evidence + the Retriever's runbook hits and asks a
+stronger LLM (gpt-oss-120b) for ranked root causes.
 
-The critical design constraint: every hypothesis's supporting_evidence_refs
-must resolve to a REAL EvidenceObject already in the ledger. This is
-checked in code, not just requested via prompt. Any ref that doesn't
-resolve gets stripped; any hypothesis left with zero valid supporting
-refs gets dropped entirely. An LLM is not trusted to police itself here
-— the ledger's unresolved_refs() check is the actual enforcement
-mechanism, the prompt instruction is just a first line of defense to
-reduce how often the strip/drop path gets hit.
-
-Uses a stronger model (gpt-oss-120b) than the Correlator's summarizer,
-since getting the ranking and reasoning right matters more here than
-speed/cost.
+The key rule: every hypothesis must cite refs that actually exist in the ledger.
+That's enforced in code — unresolved refs are stripped, and a hypothesis left
+with none is dropped. The prompt asks for it too, but the code is what enforces
+it; the LLM isn't trusted to police itself.
 """
 
 from __future__ import annotations
@@ -36,9 +23,8 @@ ROOT_CAUSE_MODEL = "openai/gpt-oss-120b"
 
 
 def build_runbook_query(ledger: EvidenceLedger) -> str:
-    """Turn the Correlator's evidence into a natural-language query for
-    the Retriever, so the runbook search is grounded in what was
-    actually found rather than being a generic query."""
+    """Build the runbook search query from the Correlator's findings, so the
+    search is grounded in what actually happened, not a generic query."""
     top_claims = [e.claim for e in ledger.evidence if e.confidence >= 0.7][:4]
     return " ".join(top_claims) if top_claims else "production incident investigation"
 
@@ -78,8 +64,8 @@ Respond ONLY with a JSON object in this exact shape, no other text:
 
 
 def generate_hypotheses(ledger: EvidenceLedger) -> list[Hypothesis]:
-    """Call the LLM, parse its JSON output, and enforce citation
-    validity against the ledger before accepting any hypothesis."""
+    """Call the LLM, parse its JSON, and keep only hypotheses whose citations
+    resolve in the ledger."""
 
     raw = chat(
         prompt=_build_hypothesis_prompt(ledger),
@@ -122,9 +108,8 @@ def generate_hypotheses(ledger: EvidenceLedger) -> list[Hypothesis]:
 
 
 def run_root_cause_investigation(scenario: IncidentScenario, use_in_memory_qdrant: bool = False) -> EvidenceLedger:
-    """Full pipeline: Correlator -> Retriever (grounded by Correlator
-    findings) -> Root-Cause hypothesis generation, all merged into one
-    EvidenceLedger with validated hypotheses attached."""
+    """Correlator -> Retriever (grounded by the Correlator) -> hypotheses, all
+    merged into one ledger with validated hypotheses attached."""
 
     # 1. Correlator pass
     ledger, correlator_summary = run_correlator(scenario)
@@ -141,7 +126,7 @@ def run_root_cause_investigation(scenario: IncidentScenario, use_in_memory_qdran
     for e in runbook_evidence:
         ledger.add_evidence(e)
 
-    # 3. Root-Cause hypothesis generation, validated against the merged ledger
+    # 3. Hypotheses, validated against the ledger
     hypotheses = generate_hypotheses(ledger)
     ledger.hypotheses = hypotheses
 

@@ -1,19 +1,12 @@
 """Celery app + the async investigation task.
 
-Why this exists: the pipeline makes several LLM calls and takes ~20s. Running it
-inside the HTTP request blocks a worker for the whole time and makes /alert time
-out under load. Instead:
+The pipeline takes ~20s, so running it inside the HTTP request blocks a worker
+and times out under load. Instead: /alert makes a 'queued' row, drops a job on
+Redis, and returns an id immediately; this worker (a separate container) pulls
+the job, runs the pipeline, and saves the result to Postgres, which you poll.
 
-    POST /alert  ->  create a 'queued' row in Postgres, drop a job on Redis,
-                     return {investigation_id} immediately
-    Redis        ->  holds the job queue (the "broker")
-    this worker  ->  a SEPARATE process/container that pulls the job, runs the
-                     pipeline, and writes the result back to Postgres
-    poll         ->  GET /investigations/{id} until status is done|failed
-
-Run the worker (Linux / docker-compose):
-    celery -A app.tasks:celery_app worker --loglevel=info --concurrency=2
-On Windows dev add --pool=solo (the default prefork pool doesn't run on Windows).
+Run the worker (docker):  celery -A app.tasks:celery_app worker --concurrency=2
+On Windows dev add --pool=solo.
 """
 
 from __future__ import annotations
@@ -44,10 +37,10 @@ celery_app.conf.update(
 
 @celery_app.task(name="app.tasks.run_investigation_task")
 def run_investigation_task(row_id: int | None, service: str, metric: str, window_minutes: int) -> dict:
-    """Build the incident from live telemetry, run the full pipeline, persist it.
+    """Build the incident from live telemetry, run the pipeline, save the result.
 
-    Heavy pipeline modules are imported lazily so the web process can import this
-    module just to enqueue without pulling in torch/qdrant/etc."""
+    Pipeline modules are imported lazily so the web process can import this just
+    to enqueue, without pulling in the heavy deps."""
     from app.ingestion.adapter import build_incident_from_alert
     from app.pipeline import run_investigation
 

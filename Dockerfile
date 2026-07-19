@@ -1,13 +1,9 @@
-# Sentinel AI application image (light — hosted embeddings).
+# Sentinel AI app image — light (hosted embeddings, no torch).
 #
-# Runs the FastAPI service that exposes the investigation pipeline. Qdrant,
-# Postgres, and Redis are separate services (see docker-compose.yml); this
-# image is only the app.
-#
-# Embeddings use the hosted Jina backend (EMBEDDING_BACKEND=jina), so this image
-# installs NO torch and bakes NO model — it stays small (~250 MB) and builds in
-# seconds. For an offline image with the local sentence-transformers backend,
-# install requirements-local.txt instead (much heavier; not the deploy path).
+# Just the FastAPI app; Qdrant, Postgres, and Redis are separate services.
+# Uses the hosted Jina embedder, so it installs no torch and bakes no model
+# (~250 MB, builds in seconds). For an offline image with the local embedder,
+# install requirements-local.txt instead.
 
 FROM python:3.13-slim
 
