@@ -4,15 +4,14 @@ name: CI
 #   * lint   — ruff, real-error rules only
 #   * test   — the offline test suite (no keys, no services)
 #   * docker — validate compose + build the light images (dummy, cockpit)
-#
-# No CD stage — the project is shown via recordings, not a live URL.
+
 
 on:
   push:
     branches: [main]
   pull_request:
 
-# Least privilege: CI only needs to read the repo.
+
 permissions:
   contents: read
 
@@ -41,9 +40,7 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      # Light install: the base requirements have no torch (the tests never touch
-      # the local embedding backend — they use SQLite, Celery eager mode, mocked
-      # Jina, and deterministic eval fixtures), so CI stays fast.
+      
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
@@ -58,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate docker-compose config
         env:
-          # Only satisfy the ${VAR:?} interpolations; not used at config time.
+          # satisfy the ${VAR:?} interpolations
           GROQ_API_KEY: ci-placeholder
           JINA_API_KEY: ci-placeholder
           POSTGRES_PASSWORD: ci-placeholder
